@@ -5,4 +5,4 @@ bundle:
 
 includes:
   - bundle: foundation
-  - bundle: foundation/providers/openai-gpt5-codex
+  - bundle: foundation/providers/openai-gpt-codex
