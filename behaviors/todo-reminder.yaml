@@ -1,7 +1,11 @@
 bundle:
   name: behavior-todo-reminder
   version: 1.0.0
-  description: Inject todo list reminders into agent context
+  description: Todo tracking with automatic context reminders
+
+tools:
+  - module: tool-todo
+    source: git+https://github.com/microsoft/amplifier-module-tool-todo@main
 
 hooks:
   - module: hooks-todo-reminder

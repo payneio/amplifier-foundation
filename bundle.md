@@ -36,8 +36,6 @@ tools:
     source: git+https://github.com/microsoft/amplifier-module-tool-search@main
   - module: tool-task
     source: git+https://github.com/microsoft/amplifier-module-tool-task@main
-  - module: tool-todo
-    source: git+https://github.com/microsoft/amplifier-module-tool-todo@main
 
 agents:
   include:
