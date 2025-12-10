@@ -1,10 +1,10 @@
 bundle:
-  name: provider-openai-gpt4
+  name: provider-openai-gpt5-codex
   version: 1.0.0
-  description: OpenAI GPT-4 provider
+  description: OpenAI GPT-5.1 Codex provider (optimized for code)
 
 providers:
   - module: provider-openai
     source: git+https://github.com/microsoft/amplifier-module-provider-openai@main
     config:
-      default_model: gpt-4o
+      default_model: gpt-5.1-codex

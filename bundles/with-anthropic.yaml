@@ -1,13 +1,8 @@
 bundle:
   name: foundation-anthropic
   version: 1.0.0
-  description: Foundation bundle with Anthropic provider
+  description: Foundation bundle with Anthropic Claude Opus provider
 
 includes:
   - bundle: foundation
-
-providers:
-  - module: provider-anthropic
-    source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
-    config:
-      default_model: claude-opus-4-5
+  - bundle: foundation/providers/anthropic-opus

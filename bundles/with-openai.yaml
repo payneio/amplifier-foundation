@@ -1,11 +1,8 @@
 bundle:
   name: foundation-openai
   version: 1.0.0
-  description: Foundation bundle with OpenAI provider
+  description: Foundation bundle with OpenAI GPT-5.1 Codex provider
 
 includes:
   - bundle: foundation
-
-providers:
-  - module: provider-openai
-    source: git+https://github.com/microsoft/amplifier-module-provider-openai@main
+  - bundle: foundation/providers/openai-gpt5-codex
