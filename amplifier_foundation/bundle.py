@@ -160,6 +160,32 @@ class Bundle:
 
         return None
 
+    def resolve_agent_path(self, name: str) -> Path | None:
+        """Resolve agent file by name.
+
+        Handles both namespaced and simple names:
+        - "foundation:bug-hunter" -> strips prefix, looks for bug-hunter.md
+        - "bug-hunter" -> looks for bug-hunter.md
+
+        Args:
+            name: Agent name (may include bundle prefix).
+
+        Returns:
+            Path to agent file, or None if not found.
+        """
+        if not self.base_path:
+            return None
+
+        # Strip bundle prefix if present (e.g., "foundation:bug-hunter" -> "bug-hunter")
+        simple_name = name.split(":", 1)[-1] if ":" in name else name
+
+        # Look in agents/ directory
+        agent_path = self.base_path / "agents" / f"{simple_name}.md"
+        if agent_path.exists():
+            return agent_path
+
+        return None
+
     def get_system_instruction(self) -> str | None:
         """Get the system instruction for this bundle.
 
@@ -224,6 +250,8 @@ def _parse_context(context_config: dict[str, Any], base_path: Path | None) -> di
     """Parse context config section.
 
     Handles both include lists and direct path mappings.
+    Context names may have bundle prefix (e.g., "foundation:file.md") which
+    should be stripped when constructing paths.
     """
     if not context_config:
         return {}
@@ -234,7 +262,9 @@ def _parse_context(context_config: dict[str, Any], base_path: Path | None) -> di
     if "include" in context_config:
         for name in context_config["include"]:
             if base_path:
-                result[name] = construct_context_path(base_path, name)
+                # Strip bundle prefix if present (e.g., "foundation:file.md" -> "file.md")
+                path_part = name.split(":", 1)[-1] if ":" in name else name
+                result[name] = construct_context_path(base_path, path_part)
 
     # Handle direct path mappings
     for key, value in context_config.items():

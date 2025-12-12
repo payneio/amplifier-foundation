@@ -24,21 +24,23 @@ def construct_agent_path(base: Path, name: str) -> Path:
 
 
 def construct_context_path(base: Path, name: str) -> Path:
-    """Construct path to a context file.
+    """Construct path to a bundle resource file.
 
-    The name is a path relative to the context/ directory within the bundle.
+    The name is a path relative to the bundle root directory.
     Supports any file extension and arbitrary directory depth.
+    Paths should be explicit - no implicit prefixes are added.
 
     Examples:
-        'IMPLEMENTATION_PHILOSOPHY.md' -> context/IMPLEMENTATION_PHILOSOPHY.md
-        'shared/common-agent-base.md'  -> context/shared/common-agent-base.md
-        'examples/config.yaml'         -> context/examples/config.yaml
+        'context/IMPLEMENTATION_PHILOSOPHY.md' -> context/IMPLEMENTATION_PHILOSOPHY.md
+        'context/shared/common-agent-base.md'  -> context/shared/common-agent-base.md
+        'providers/anthropic.yaml'             -> providers/anthropic.yaml
+        'agents/explorer.md'                   -> agents/explorer.md
 
     Args:
         base: Base directory (bundle root).
-        name: Path to context file relative to context/ directory.
+        name: Path to file relative to bundle root (explicit, no implicit prefix).
 
     Returns:
-        Path to context file.
+        Path to file.
     """
-    return base / "context" / name
+    return base / name

@@ -86,6 +86,6 @@ I've found some existing telemetry code. Let me mark the first todo as in_progre
   assistant: [Uses the task tool with `agent=foundation:explorer`]
   </example>
 
-@foundation:shared/common-agent-base.md
+@foundation:context/shared/common-agent-base.md
 
 ---

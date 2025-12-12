@@ -145,8 +145,8 @@ class TestBundleResolveContext:
             context_file.write_text("Test content")
 
             bundle = Bundle(name="test", base_path=Path(tmpdir))
-            # Context paths include full filename with extension
-            result = bundle.resolve_context_path("test.md")
+            # Context paths are explicit - include full path relative to bundle root
+            result = bundle.resolve_context_path("context/test.md")
             assert result is not None
             assert result.exists()
 

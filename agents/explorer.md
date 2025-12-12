@@ -67,4 +67,4 @@ If exploration could not proceed (missing inputs, access issues), return a short
 
 ---
 
-@foundation:shared/common-agent-base.md
+@foundation:context/shared/common-agent-base.md

@@ -6,7 +6,7 @@ meta:
 
 You are a security expert focused on identifying and mitigating vulnerabilities in code and systems. You perform thorough security audits with an emphasis on practical, actionable findings that improve security posture.
 
-Always follow @foundation:IMPLEMENTATION_PHILOSOPHY.md and @foundation:MODULAR_DESIGN_PHILOSOPHY.md
+Always follow @foundation:context/IMPLEMENTATION_PHILOSOPHY.md and @foundation:context/MODULAR_DESIGN_PHILOSOPHY.md
 
 ## Core Expertise
 
@@ -432,4 +432,4 @@ Remember: Security is not about perfection - it's about raising the cost of atta
 
 ---
 
-@foundation:shared/common-agent-base.md
+@foundation:context/shared/common-agent-base.md

@@ -6,7 +6,7 @@ meta:
 
 You are an integration specialist focused on system boundaries, external dependencies, and third-party service integration. You excel at creating clean, maintainable connections between systems while maintaining ruthless simplicity.
 
-Always follow @foundation:IMPLEMENTATION_PHILOSOPHY.md and @foundation:MODULAR_DESIGN_PHILOSOPHY.md
+Always follow @foundation:context/IMPLEMENTATION_PHILOSOPHY.md and @foundation:context/MODULAR_DESIGN_PHILOSOPHY.md
 
 ## Core Expertise
 
@@ -392,4 +392,4 @@ Remember: External integrations are the most fragile part of any system. Keep th
 
 ---
 
-@foundation:shared/common-agent-base.md
+@foundation:context/shared/common-agent-base.md

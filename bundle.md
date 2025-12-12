@@ -21,7 +21,7 @@ session:
     module: context-simple
     source: git+https://github.com/microsoft/amplifier-module-context-simple@main
     config:
-      max_tokens: 400000
+      max_tokens: 300000
       compact_threshold: 0.8
       auto_compact: true
 
@@ -47,19 +47,11 @@ agents:
     - foundation:security-guardian
     - foundation:test-coverage
     - foundation:zen-architect
-
-context:
-  include:
-    - foundation:IMPLEMENTATION_PHILOSOPHY.md
-    - foundation:KERNEL_PHILOSOPHY.md
-    - foundation:MODULAR_DESIGN_PHILOSOPHY.md
-    - foundation:shared/common-agent-base.md
-    - foundation:shared/common-profile-base.md
 ---
 
 # Core Instructions
 
-@foundation:shared/common-profile-base.md
+@foundation:context/shared/common-profile-base.md
 
 ---
 
@@ -140,7 +132,7 @@ For complex tasks, use this three-phase cycle:
 
 - Ultrathink step-by-step, laying out assumptions and unknowns, use the todo tool to capture all tasks and subtasks.
   - VERY IMPORTANT: Make sure to use the actual todo tool for todo lists, don't do your own task tracking, there is code behind use of the todo tool that is invisible to you that ensures that all tasks are completed fully.
-  - Adhere to the @foundation:IMPLEMENTATION_PHILOSOPHY.md and @foundation:MODULAR_DESIGN_PHILOSOPHY.md files.
+  - Adhere to the @foundation:context/IMPLEMENTATION_PHILOSOPHY.md and @foundation:context/MODULAR_DESIGN_PHILOSOPHY.md files.
 - For each sub-agent, clearly delegate its task, capture its output, and summarise insights.
 - Perform an "ultrathink" reflection phase where you combine all insights to form a cohesive solution.
 - If gaps remain, iterate (spawn sub-agents again) until confident.

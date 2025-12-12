@@ -229,4 +229,4 @@ grep -r "authentication" ~/.amplifier/projects/*/sessions/*/transcript.jsonl
 
 ---
 
-@foundation:shared/common-agent-base.md
+@foundation:context/shared/common-agent-base.md

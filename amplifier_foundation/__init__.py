@@ -8,6 +8,11 @@ Core concept: Bundle = composable unit that produces mount plans.
 One mechanism: `includes:` (declarative) + `compose()` (imperative)
 
 Philosophy: Mechanism not policy, ruthless simplicity.
+
+Note: This library is PURE MECHANISM. It loads bundles from URIs without
+knowing about any specific bundle (including "foundation"). The foundation
+bundle content co-located in this repo is just content - it's discovered
+and loaded the same way any other bundle would be.
 """
 
 from __future__ import annotations

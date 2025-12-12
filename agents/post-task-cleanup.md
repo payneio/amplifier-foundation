@@ -26,7 +26,7 @@ git diff HEAD --name-only  # For all changed files
 
 ## 2. Philosophy Compliance Check
 
-Review all touched files against @foundation:IMPLEMENTATION_PHILOSOPHY.md and @foundation:MODULAR_DESIGN_PHILOSOPHY.md
+Review all touched files against @foundation:context/IMPLEMENTATION_PHILOSOPHY.md and @foundation:context/MODULAR_DESIGN_PHILOSOPHY.md
 
 **Ruthless Simplicity Violations to Find:**
 
@@ -190,4 +190,4 @@ Remember: Your role is to ensure every completed task leaves the codebase cleane
 
 ---
 
-@foundation:shared/common-agent-base.md
+@foundation:context/shared/common-agent-base.md
