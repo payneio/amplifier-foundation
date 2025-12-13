@@ -20,9 +20,9 @@ cd amplifier-foundation
 uv sync
 ```
 
-### 2. Set API Key
+### 2. API Key (Optional Pre-setup)
 
-Set the environment variable for your chosen provider:
+You can set the environment variable for your chosen provider ahead of time:
 
 ```bash
 # For Anthropic (Claude)
@@ -31,6 +31,8 @@ export ANTHROPIC_API_KEY=your-key-here
 # For OpenAI
 export OPENAI_API_KEY=your-key-here
 ```
+
+**Or**, if you don't set the env var, the example will prompt you to enter your API key interactively when you select a provider.
 
 ## Running the Example
 

@@ -87,10 +87,19 @@ def select_provider(providers: list[dict]) -> dict | None:
             if 0 <= idx < len(providers):
                 selected = providers[idx]
                 if not selected["env_set"]:
-                    print(f"\n⚠ Warning: {selected['env_var']} is not set.")
-                    proceed = input("Continue anyway? [y/N]: ")
-                    if proceed.lower() != "y":
-                        continue
+                    print(f"\n⚠ {selected['env_var']} is not set.")
+                    print("You can either:")
+                    print("  1. Enter your API key now (will be used for this session only)")
+                    print("  2. Skip and set the environment variable later")
+                    api_key = input(f"\nEnter {selected['env_var']} (or press Enter to skip): ").strip()
+                    if api_key:
+                        selected["api_key"] = api_key
+                        print("      ✓ API key provided")
+                    else:
+                        print("\n      Skipping - provider may fail without API key.")
+                        proceed = input("      Continue anyway? [y/N]: ")
+                        if proceed.lower() != "y":
+                            continue
                 return selected
             print("Invalid selection. Try again.")
         except ValueError:
@@ -200,12 +209,18 @@ async def main() -> None:
     if "file" in selected:
         # Load from file
         provider_bundle = await load_bundle(str(selected["file"]))
+        # If user provided API key, inject it into the provider config
+        if "api_key" in selected and provider_bundle.providers:
+            provider_bundle.providers[0].setdefault("config", {})["api_key"] = selected["api_key"]
     else:
-        # Create inline
+        # Create inline - include api_key if user provided it
+        provider_config = dict(selected["inline"])
+        if "api_key" in selected:
+            provider_config.setdefault("config", {})["api_key"] = selected["api_key"]
         provider_bundle = Bundle(
             name=selected["name"],
             version="1.0.0",
-            providers=[selected["inline"]],
+            providers=[provider_config],
         )
 
     # Compose
