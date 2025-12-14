@@ -37,6 +37,11 @@ from typing import Any
 from amplifier_foundation import Bundle
 from amplifier_foundation import load_bundle
 from amplifier_foundation.bundle import PreparedBundle
+from amplifier_foundation.mentions import BaseMentionResolver
+from amplifier_foundation.mentions import ContentDeduplicator
+from amplifier_foundation.mentions import format_context_block
+from amplifier_foundation.mentions import load_mentions
+from amplifier_foundation.mentions import parse_mentions
 
 # =============================================================================
 # CLI Output Helpers
@@ -172,6 +177,81 @@ def get_user_prompt() -> str | None:
     if prompt.lower() == "q":
         return None
     return prompt
+
+
+# =============================================================================
+# @Mention Processing
+# =============================================================================
+
+
+async def process_prompt_mentions(
+    session: Any,
+    prompt: str,
+    foundation: Bundle,
+) -> None:
+    """Process @mentions in user prompt and add context to session.
+
+    This demonstrates the APP-LAYER POLICY for @mention handling.
+    Apps decide:
+    - Which bundles are registered as namespaces
+    - What base path to use for relative mentions
+    - How to format and present the context
+
+    Args:
+        session: Active session to add context messages to.
+        prompt: User's prompt that may contain @mentions.
+        foundation: Foundation bundle for @foundation:path resolution.
+    """
+    # Check if prompt has any @mentions
+    mentions = parse_mentions(prompt)
+    if not mentions:
+        return
+
+    print(f"       Processing {len(mentions)} @mention(s)...")
+
+    # Create resolver with foundation bundle registered
+    # This allows @foundation:path/to/file resolution
+    resolver = BaseMentionResolver(
+        bundles={"foundation": foundation},
+        base_path=Path.cwd(),  # Relative @mentions resolve from cwd
+    )
+
+    # Create deduplicator to track unique content
+    deduplicator = ContentDeduplicator()
+
+    # Load all mentioned files recursively
+    results = await load_mentions(
+        text=prompt,
+        resolver=resolver,
+        deduplicator=deduplicator,
+        relative_to=Path.cwd(),
+    )
+
+    # Build mapping from @mention to resolved path for attribution
+    mention_to_path: dict[str, Path] = {}
+    for result in results:
+        if result.resolved_path:
+            mention_to_path[result.mention] = result.resolved_path
+
+    # Format loaded files as XML context blocks
+    context_block = format_context_block(deduplicator, mention_to_path)
+    if not context_block:
+        print("       No files found for @mentions")
+        return
+
+    # Count loaded files
+    loaded_count = len(deduplicator.get_unique_files())
+    print(f"       Loaded {loaded_count} unique file(s)")
+
+    # Add context to session as a system message BEFORE the user message
+    # This ensures the LLM sees the file contents in its context
+    context = session.coordinator.get("context")
+    await context.add_message(
+        {
+            "role": "system",
+            "content": f"The following files were referenced via @mentions:\n\n{context_block}",
+        }
+    )
 
 
 # =============================================================================
@@ -392,6 +472,10 @@ async def main() -> None:
         print_detail("Session ID", session.session_id)
 
         async with session:
+            # Process @mentions in the prompt and add context to session
+            # This must happen BEFORE execute() so LLM sees file contents
+            await process_prompt_mentions(session, prompt, foundation)
+
             print("\n       Executing...\n")
             response = await session.execute(prompt)
             print()
