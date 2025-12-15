@@ -260,8 +260,11 @@ class Bundle:
         """Resolve agent file by name.
 
         Handles both namespaced and simple names:
-        - "foundation:bug-hunter" -> strips prefix, looks for bug-hunter.md
-        - "bug-hunter" -> looks for bug-hunter.md
+        - "foundation:bug-hunter" -> looks in source_base_paths["foundation"]/agents/
+        - "bug-hunter" -> looks in self.base_path/agents/
+
+        For namespaced agents from included bundles, uses source_base_paths
+        to find the correct bundle's agents directory.
 
         Args:
             name: Agent name (may include bundle prefix).
@@ -269,16 +272,28 @@ class Bundle:
         Returns:
             Path to agent file, or None if not found.
         """
-        if not self.base_path:
-            return None
+        # Check for namespaced agent (e.g., "foundation:bug-hunter")
+        if ":" in name:
+            namespace, simple_name = name.split(":", 1)
 
-        # Strip bundle prefix if present (e.g., "foundation:bug-hunter" -> "bug-hunter")
-        simple_name = name.split(":", 1)[-1] if ":" in name else name
+            # First, try source_base_paths for included bundles
+            if namespace in self.source_base_paths:
+                agent_path = self.source_base_paths[namespace] / "agents" / f"{simple_name}.md"
+                if agent_path.exists():
+                    return agent_path
 
-        # Look in agents/ directory
-        agent_path = self.base_path / "agents" / f"{simple_name}.md"
-        if agent_path.exists():
-            return agent_path
+            # Fall back to self.base_path if namespace matches self.name
+            if namespace == self.name and self.base_path:
+                agent_path = self.base_path / "agents" / f"{simple_name}.md"
+                if agent_path.exists():
+                    return agent_path
+        else:
+            # No namespace - look in self.base_path
+            simple_name = name
+            if self.base_path:
+                agent_path = self.base_path / "agents" / f"{simple_name}.md"
+                if agent_path.exists():
+                    return agent_path
 
         return None
 
