@@ -150,6 +150,59 @@ class BundleValidator:
                 if not path.exists():
                     result.add_warning(f"context.{name}: Path does not exist: {path}")
 
+    def validate_completeness(self, bundle: Bundle) -> ValidationResult:
+        """Validate that a bundle is complete for direct mounting.
+
+        Checks that the bundle has all required sections for creating a session:
+        - Session with orchestrator and context
+        - At least one provider
+
+        Use this for bundles in `bundles/` directory that should be mountable.
+        Partial bundles (providers/, behaviors/, agents/) are not expected to pass.
+
+        Args:
+            bundle: Bundle to validate for completeness.
+
+        Returns:
+            ValidationResult with errors for missing required sections.
+        """
+        result = ValidationResult()
+
+        # First run basic validation
+        basic_result = self.validate(bundle)
+        result.errors.extend(basic_result.errors)
+        result.warnings.extend(basic_result.warnings)
+        if basic_result.errors:
+            result.valid = False
+
+        # Check session completeness
+        if not bundle.session:
+            result.add_error("Mount plan requires 'session' section")
+        else:
+            if not bundle.session.get("orchestrator"):
+                result.add_error("session: Missing required 'orchestrator' field")
+            if not bundle.session.get("context"):
+                result.add_error("session: Missing required 'context' field")
+
+        # Check provider presence
+        if not bundle.providers:
+            result.add_error("Mount plan requires at least one provider")
+
+        return result
+
+    def validate_completeness_or_raise(self, bundle: Bundle) -> None:
+        """Validate bundle completeness and raise on errors.
+
+        Args:
+            bundle: Bundle to validate for completeness.
+
+        Raises:
+            BundleValidationError: If completeness validation fails.
+        """
+        result = self.validate_completeness(bundle)
+        if not result.valid:
+            raise BundleValidationError(f"Bundle incomplete for mounting: {'; '.join(result.errors)}")
+
 
 def validate_bundle(bundle: Bundle) -> ValidationResult:
     """Convenience function to validate a bundle.
@@ -175,3 +228,29 @@ def validate_bundle_or_raise(bundle: Bundle) -> None:
     """
     validator = BundleValidator()
     validator.validate_or_raise(bundle)
+
+
+def validate_bundle_completeness(bundle: Bundle) -> ValidationResult:
+    """Convenience function to validate bundle completeness for direct mounting.
+
+    Args:
+        bundle: Bundle to validate for completeness.
+
+    Returns:
+        ValidationResult with errors for missing required sections.
+    """
+    validator = BundleValidator()
+    return validator.validate_completeness(bundle)
+
+
+def validate_bundle_completeness_or_raise(bundle: Bundle) -> None:
+    """Convenience function to validate bundle completeness and raise on errors.
+
+    Args:
+        bundle: Bundle to validate for completeness.
+
+    Raises:
+        BundleValidationError: If completeness validation fails.
+    """
+    validator = BundleValidator()
+    validator.validate_completeness_or_raise(bundle)
