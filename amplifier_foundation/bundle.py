@@ -75,6 +75,15 @@ class Bundle:
         if self.name and self.base_path and self.name not in initial_base_paths:
             initial_base_paths[self.name] = self.base_path
 
+        # Prefix self's context keys with bundle name to avoid collisions during compose
+        initial_context: dict[str, Path] = {}
+        for key, path in self.context.items():
+            if self.name and ":" not in key:
+                prefixed_key = f"{self.name}:{key}"
+            else:
+                prefixed_key = key
+            initial_context[prefixed_key] = path
+
         result = Bundle(
             name=self.name,
             version=self.version,
@@ -85,7 +94,7 @@ class Bundle:
             tools=list(self.tools),
             hooks=list(self.hooks),
             agents=dict(self.agents),
-            context=dict(self.context),
+            context=initial_context,
             instruction=self.instruction,
             base_path=self.base_path,
             source_base_paths=initial_base_paths,
@@ -110,9 +119,18 @@ class Bundle:
             result.tools = merge_module_lists(result.tools, other.tools)
             result.hooks = merge_module_lists(result.hooks, other.hooks)
 
-            # Resources: later overrides
+            # Agents: later overrides
             result.agents.update(other.agents)
-            result.context.update(other.context)
+
+            # Context: accumulate with bundle prefix to avoid collisions
+            # This allows multiple bundles to each contribute context files
+            for key, path in other.context.items():
+                # Add bundle prefix if not already present
+                if other.name and ":" not in key:
+                    prefixed_key = f"{other.name}:{key}"
+                else:
+                    prefixed_key = key
+                result.context[prefixed_key] = path
 
             # Instruction: later replaces
             if other.instruction:
@@ -474,13 +492,28 @@ class PreparedBundle:
         await session.initialize()
 
         # Inject system instruction with resolved @mentions (if present)
-        if self.bundle.instruction:
+        # Also inject context.include files (accumulated from all composed bundles)
+        if self.bundle.instruction or self.bundle.context:
             from dataclasses import replace as dataclass_replace
 
             from amplifier_foundation.mentions import BaseMentionResolver
             from amplifier_foundation.mentions import ContentDeduplicator
             from amplifier_foundation.mentions import format_context_block
             from amplifier_foundation.mentions import load_mentions
+
+            # Build combined instruction: main instruction + all context.include files
+            instruction_parts: list[str] = []
+            if self.bundle.instruction:
+                instruction_parts.append(self.bundle.instruction)
+
+            # Load and append all context files (these are auto-injected, not just @mention-resolvable)
+            for context_name, context_path in self.bundle.context.items():
+                if context_path.exists():
+                    content = context_path.read_text()
+                    # Add with attribution header
+                    instruction_parts.append(f"# Context: {context_name}\n\n{content}")
+
+            combined_instruction = "\n\n---\n\n".join(instruction_parts)
 
             # Build bundle registry: each namespace maps to bundle with correct base_path
             # This allows @foundation:context/... to resolve relative to foundation's base_path
@@ -513,9 +546,9 @@ class PreparedBundle:
             session.coordinator.register_capability("mention_resolver", resolver)
             session.coordinator.register_capability("mention_deduplicator", deduplicator)
 
-            # Resolve @mentions in the instruction (returns MentionResult list with content)
+            # Resolve @mentions in the combined instruction (returns MentionResult list with content)
             mention_results = await load_mentions(
-                self.bundle.instruction,
+                combined_instruction,
                 resolver=resolver,
                 deduplicator=deduplicator,
             )
@@ -532,9 +565,9 @@ class PreparedBundle:
 
             # Prepend context to instruction (context first, then original instruction with @mentions)
             if context_block:
-                final_instruction = f"{context_block}\n\n---\n\n{self.bundle.instruction}"
+                final_instruction = f"{context_block}\n\n---\n\n{combined_instruction}"
             else:
-                final_instruction = self.bundle.instruction
+                final_instruction = combined_instruction
 
             # Add as system message
             context_manager = session.coordinator.get("context")
@@ -624,13 +657,28 @@ class PreparedBundle:
         await child_session.initialize()
 
         # Inject system instruction with resolved @mentions (if present)
-        if effective_bundle.instruction:
+        # Also inject context.include files (accumulated from all composed bundles)
+        if effective_bundle.instruction or effective_bundle.context:
             from dataclasses import replace as dataclass_replace
 
             from amplifier_foundation.mentions import BaseMentionResolver
             from amplifier_foundation.mentions import ContentDeduplicator
             from amplifier_foundation.mentions import format_context_block
             from amplifier_foundation.mentions import load_mentions
+
+            # Build combined instruction: main instruction + all context.include files
+            instruction_parts: list[str] = []
+            if effective_bundle.instruction:
+                instruction_parts.append(effective_bundle.instruction)
+
+            # Load and append all context files (these are auto-injected, not just @mention-resolvable)
+            for context_name, context_path in effective_bundle.context.items():
+                if context_path.exists():
+                    content = context_path.read_text()
+                    # Add with attribution header
+                    instruction_parts.append(f"# Context: {context_name}\n\n{content}")
+
+            combined_instruction = "\n\n---\n\n".join(instruction_parts)
 
             # Build bundle registry from source_base_paths (set during compose)
             bundles_for_resolver: dict[str, Bundle] = {}
@@ -655,9 +703,9 @@ class PreparedBundle:
             # Create deduplicator to collect ALL loaded content (including nested)
             deduplicator = ContentDeduplicator()
 
-            # Resolve @mentions in the instruction (also loads nested @mentions)
+            # Resolve @mentions in the combined instruction (also loads nested @mentions)
             mention_results = await load_mentions(
-                effective_bundle.instruction,
+                combined_instruction,
                 resolver=resolver,
                 deduplicator=deduplicator,
             )
@@ -674,9 +722,9 @@ class PreparedBundle:
 
             # Prepend context to instruction (context first, then original instruction with @mentions)
             if context_block:
-                final_instruction = f"{context_block}\n\n---\n\n{effective_bundle.instruction}"
+                final_instruction = f"{context_block}\n\n---\n\n{combined_instruction}"
             else:
-                final_instruction = effective_bundle.instruction
+                final_instruction = combined_instruction
 
             context = child_session.coordinator.get("context")
             if context and hasattr(context, "add_message"):

@@ -91,41 +91,30 @@ You may also use these files to store important information about your role, beh
 - If neither of those files exist, but an `.amplifier/` directory exists, you should create an AGENTS.md file in that directory.
 - If none of those exist, you should use the `~/.amplifier/AGENTS.md` file or create it if it does not exist.
 
-## ⚠️ IMPORTANT: `@Mention` Support in File Tools
+## ⚠️ IMPORTANT: `@Mention` Support
 
-The file tools (read_file, write_file, edit_file) support `@mention` paths for seamless access to collection files, project files, and user files.
+Bundle instructions support `@mention` paths for referencing context files.
 
 **`@Mention` Patterns Supported:**
 
-- `@collection:path` - Collection resources (e.g., `@toolkit:scenario-tools/blog-writer/README.md`)
-- `@user:path` - Shortcut to `~/.amplifier/{path}`
-- `@project:path` - Shortcut to `.amplifier/{path}`
-- `@~/path` - User home directory
-
-**Directory Listings:**
-
-When you use read_file with a directory path (e.g., `@toolkit:scenario-tools/blog-writer`), it returns a formatted directory listing showing all files and subdirectories.
+- `@bundle-name:path` - Bundle resources (e.g., `@foundation:context/IMPLEMENTATION_PHILOSOPHY.md`)
+- `@relative/path` - Relative path from current working directory
 
 **Examples:**
 
-```python
-# Read a collection file
-read_file("@toolkit:scenario-tools/blog-writer/README.md")
+```markdown
+# Reference a foundation context file
+@foundation:context/IMPLEMENTATION_PHILOSOPHY.md
 
-# List a collection directory
-read_file("@toolkit:scenario-tools/blog-writer")
-# Returns: DIR/FILE listing of all entries
-
-# Read project config
-read_file("@project:settings.yaml")
-
-# Read from user directory
-read_file("@~/custom_instructions.md")
+# Reference a file relative to current directory
+@docs/README.md
 ```
 
-**Context Display:**
+**How @mentions work:**
 
-When context is loaded from collections, the "Context from" header shows both the `@mention` pattern and absolute path.This helps you see the `@mention` pattern to use when accessing related files.
+1. When a bundle instruction contains `@mentions`, the referenced files are loaded
+2. File contents are prepended to the instruction as context blocks
+3. The LLM sees both the file contents and the original instruction with @mentions
 
 ## ⚠️ CRITICAL: Your Responsibility to Keep This File Current
 
