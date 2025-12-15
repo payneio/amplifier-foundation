@@ -429,21 +429,22 @@ result = merge_module_lists(base, overlay)
 # [{"module": "foo", "config": {"a": 1, "b": 2}}, {"module": "bar"}]
 ```
 
-**get_nested(d: dict, path: str, default: Any = None) -> Any**
+**get_nested(data: dict, path: list[str], default: Any = None) -> Any**
 
-Get nested value by dot-separated path.
+Get nested value by path.
 
 ```python
-value = get_nested({"a": {"b": {"c": 1}}}, "a.b.c")  # 1
+value = get_nested({"a": {"b": {"c": 1}}}, ["a", "b", "c"])  # 1
+value = get_nested({"a": 1}, ["x", "y"], default="not found")  # "not found"
 ```
 
-**set_nested(d: dict, path: str, value: Any) -> None**
+**set_nested(data: dict, path: list[str], value: Any) -> None**
 
-Set nested value by dot-separated path.
+Set nested value by path. Creates intermediate dicts as needed.
 
 ```python
 d = {}
-set_nested(d, "a.b.c", 1)  # {"a": {"b": {"c": 1}}}
+set_nested(d, ["a", "b", "c"], 1)  # {"a": {"b": {"c": 1}}}
 ```
 
 ### I/O Utilities
@@ -458,13 +459,21 @@ from amplifier_foundation import (
 )
 ```
 
-**read_yaml(path: Path) -> dict**
+**async read_yaml(path: Path) -> dict | None**
 
-Read YAML file.
+Read YAML file asynchronously.
 
-**write_yaml(path: Path, data: dict) -> None**
+```python
+data = await read_yaml(Path("config.yaml"))  # Returns dict or None if not found
+```
 
-Write dict to YAML file.
+**async write_yaml(path: Path, data: dict) -> None**
+
+Write dict to YAML file asynchronously.
+
+```python
+await write_yaml(Path("config.yaml"), {"key": "value"})
+```
 
 **parse_frontmatter(content: str) -> tuple[dict, str]**
 
@@ -474,13 +483,21 @@ Parse YAML frontmatter from markdown.
 frontmatter, body = parse_frontmatter(markdown_content)
 ```
 
-**read_with_retry(path: Path, retries: int = 3) -> str**
+**async read_with_retry(path: Path, max_retries: int = 3, initial_delay: float = 0.1) -> str**
 
-Read file with retry (for cloud-synced files).
+Read file with retry (for cloud-synced files like OneDrive, Dropbox).
 
-**write_with_retry(path: Path, content: str, retries: int = 3) -> None**
+```python
+content = await read_with_retry(Path("data.txt"))
+```
 
-Write file with retry.
+**async write_with_retry(path: Path, content: str, max_retries: int = 3, initial_delay: float = 0.1) -> None**
+
+Write file with retry. Creates parent directories as needed.
+
+```python
+await write_with_retry(Path("output.txt"), "content")
+```
 
 ### Path Utilities
 
@@ -503,17 +520,31 @@ parsed = parse_uri("git+https://github.com/org/repo@main")
 # ParsedURI(scheme="git+https", host="github.com", path="org/repo", ref="main")
 ```
 
-**normalize_path(path: str | Path) -> Path**
+**normalize_path(path: str | Path, relative_to: Path | None = None) -> Path**
 
 Normalize and resolve path.
 
-**find_files(directory: Path, pattern: str) -> list[Path]**
+```python
+path = normalize_path("./config.yaml")  # Resolves to absolute path
+path = normalize_path("config.yaml", relative_to=Path("/project"))  # /project/config.yaml
+```
+
+**async find_files(base: Path, pattern: str, recursive: bool = True) -> list[Path]**
 
 Find files matching glob pattern.
 
-**find_bundle_root(start: Path) -> Path | None**
+```python
+files = await find_files(Path("docs"), "*.md")  # All .md files recursively
+files = await find_files(Path("docs"), "*.md", recursive=False)  # Top-level only
+```
+
+**async find_bundle_root(start: Path) -> Path | None**
 
 Find bundle root by looking for bundle.md or bundle.yaml.
+
+```python
+root = await find_bundle_root(Path.cwd())  # Searches upward from cwd
+```
 
 ### Mention Utilities
 
@@ -537,9 +568,21 @@ mentions = parse_mentions("See @foundation:context/guidelines.md")
 # ["@foundation:context/guidelines.md"]
 ```
 
-**load_mentions(text: str, resolver: MentionResolverProtocol, deduplicator: ContentDeduplicator) -> list[MentionResult]**
+**async load_mentions(text: str, resolver: MentionResolverProtocol, deduplicator: ContentDeduplicator | None = None, relative_to: Path | None = None, max_depth: int = 3) -> list[MentionResult]**
 
-Load content for all @mentions in text.
+Load content for all @mentions in text recursively with deduplication.
+
+All mentions are opportunistic - if a file can't be found, it's silently skipped.
+
+```python
+results = await load_mentions(
+    text="See @AGENTS.md and @foundation:context/guidelines.md",
+    resolver=resolver,
+    deduplicator=deduplicator,  # Optional, creates one if None
+    relative_to=Path.cwd(),     # Base path for relative mentions
+    max_depth=3,                # Maximum recursion depth
+)
+```
 
 **BaseMentionResolver**
 
@@ -554,13 +597,20 @@ resolver = BaseMentionResolver(
 
 **ContentDeduplicator**
 
-Tracks loaded content to avoid duplicates.
+Tracks loaded content by SHA-256 hash to avoid duplicates.
 
 ```python
 deduplicator = ContentDeduplicator()
-deduplicator.add(path, content)
-if not deduplicator.has(path):
-    # Load content
+
+# Add file (returns True if new, False if duplicate content)
+was_new = deduplicator.add_file(path, content)
+
+# Check if content has been seen
+if not deduplicator.is_seen(content):
+    # New content
+
+# Get all unique files
+unique_files = deduplicator.get_unique_files()  # Returns list[ContextFile]
 ```
 
 ## Reference Implementations
