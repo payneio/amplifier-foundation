@@ -1,8 +1,12 @@
 # Amplifier Foundation
 
-Ultra-thin mechanism layer for bundle composition in the Amplifier ecosystem.
+Foundational library for the Amplifier ecosystem: bundle composition, utilities, and reference content.
 
-Foundation provides the mechanisms for loading, composing, and resolving bundles from local and remote sources. It sits between `amplifier-core` (kernel) and applications, enabling teams to share and compose AI tool configurations.
+Foundation provides:
+- **Bundle System** - Load, compose, validate, and resolve bundles from local and remote sources
+- **@Mention System** - Parse and resolve `@namespace:path` references in instructions
+- **Utilities** - YAML/frontmatter I/O, dict merging, path handling, caching
+- **Reference Content** - Reusable providers, agents, behaviors, and context files
 
 ## Quick Start
 
@@ -10,38 +14,119 @@ Foundation provides the mechanisms for loading, composing, and resolving bundles
 pip install amplifier-foundation
 ```
 
+### Load and Compose Bundles
+
 ```python
 import asyncio
 from amplifier_foundation import load_bundle
 
 async def main():
-    # Load a bundle
+    # Load a bundle from local path or git URL
     bundle = await load_bundle("./my-bundle")
 
+    # Compose with another bundle (later overrides earlier)
+    overlay = await load_bundle("./overlay-bundle")
+    composed = bundle.compose(overlay)
+
     # Get mount plan for AmplifierSession
-    mount_plan = bundle.to_mount_plan()
+    mount_plan = composed.to_mount_plan()
     print(f"Loaded: {bundle.name} v{bundle.version}")
 
 asyncio.run(main())
 ```
 
-**For complete examples, see:**
+### Use Utilities Directly
 
-- `examples/01_load_and_inspect.py` - Loading bundles from various sources
-- `examples/02_composition.py` - Bundle composition and merge rules
-- `examples/03_sources_and_registry.py` - Git URLs and BundleRegistry
-- `examples/04_full_workflow/` - Complete: prepare → create_session → execute
+```python
+from amplifier_foundation import (
+    # I/O
+    read_yaml, write_yaml, parse_frontmatter, read_with_retry, write_with_retry,
+    # Dict operations
+    deep_merge, merge_module_lists, get_nested, set_nested,
+    # Path handling
+    parse_uri, normalize_path, find_files, find_bundle_root,
+    # @Mentions
+    parse_mentions, load_mentions,
+    # Caching
+    SimpleCache, DiskCache,
+)
+
+# Parse git URIs
+parsed = parse_uri("git+https://github.com/org/repo@main#subdirectory=bundles/dev")
+# → ParsedURI(scheme='git+https', host='github.com', path='/org/repo', ref='main', subpath='bundles/dev')
+
+# Deep merge dicts (later wins)
+result = deep_merge(base_config, overlay_config)
+
+# Parse markdown frontmatter
+frontmatter, body = parse_frontmatter(markdown_content)
+
+# Find files recursively
+md_files = find_files(Path("docs"), "**/*.md")
+```
+
+## What's Included
+
+### Bundle System (`bundle.py`, `registry.py`, `validator.py`)
+
+| Export | Purpose |
+|--------|---------|
+| `Bundle` | Core class - load, compose, validate bundles |
+| `load_bundle(uri)` | Load bundle from local path or git URL |
+| `BundleRegistry` | Track loaded bundles, check for updates |
+| `validate_bundle()` | Validate bundle structure |
+
+### @Mention System (`mentions/`)
+
+| Export | Purpose |
+|--------|---------|
+| `parse_mentions(text)` | Extract `@namespace:path` references |
+| `load_mentions(text, resolver)` | Resolve and load mentioned files |
+| `BaseMentionResolver` | Base class for custom resolvers |
+| `ContentDeduplicator` | Prevent duplicate content loading |
+
+### Utilities
+
+| Module | Exports | Purpose |
+|--------|---------|---------|
+| `io/` | `read_yaml`, `write_yaml`, `parse_frontmatter`, `read_with_retry`, `write_with_retry` | File I/O with cloud sync retry |
+| `dicts/` | `deep_merge`, `merge_module_lists`, `get_nested`, `set_nested` | Dict manipulation |
+| `paths/` | `parse_uri`, `normalize_path`, `find_files`, `find_bundle_root` | Path and URI handling |
+| `cache/` | `SimpleCache`, `DiskCache` | Caching with TTL support |
+
+### Reference Content (Co-located)
+
+This repo also contains reference bundle content for common configurations:
+
+| Directory | Content |
+|-----------|---------|
+| `providers/` | Provider configurations (anthropic, openai, azure, ollama) |
+| `agents/` | Reusable agent definitions |
+| `behaviors/` | Behavioral configurations |
+| `context/` | Shared context files |
+| `bundles/` | Complete bundle examples |
+
+**Note**: This content is just files - discovered and loaded like any other bundle.
+
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| `examples/01_load_and_inspect.py` | Loading bundles from various sources |
+| `examples/02_composition.py` | Bundle composition and merge rules |
+| `examples/03_sources_and_registry.py` | Git URLs and BundleRegistry |
+| `examples/04_full_workflow/` | Complete: prepare → create_session → execute |
 
 ## Documentation
 
-| Document                                  | Description                                     |
-| ----------------------------------------- | ----------------------------------------------- |
-| [CONCEPTS.md](docs/CONCEPTS.md)           | Mental model: bundles, composition, mount plans |
-| [PATTERNS.md](docs/PATTERNS.md)           | Common patterns with code examples              |
-| [URI_FORMATS.md](docs/URI_FORMATS.md)     | Source URI quick reference                      |
-| [API_REFERENCE.md](docs/API_REFERENCE.md) | API index pointing to source files              |
+| Document | Description |
+|----------|-------------|
+| [CONCEPTS.md](docs/CONCEPTS.md) | Mental model: bundles, composition, mount plans |
+| [PATTERNS.md](docs/PATTERNS.md) | Common patterns with code examples |
+| [URI_FORMATS.md](docs/URI_FORMATS.md) | Source URI quick reference |
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | API index pointing to source files |
 
-**Code is the authoritative reference**: Each source file has comprehensive docstrings. Read `bundle.py`, `validator.py`, etc. directly or use `help(ClassName)`.
+**Code is authoritative**: Each source file has comprehensive docstrings. Use `help(ClassName)` or read source directly.
 
 ## Philosophy
 
@@ -52,7 +137,7 @@ Foundation follows Amplifier's core principles:
 - **Text-first**: YAML/Markdown formats are human-readable, diffable, versionable.
 - **Composable**: Small bundles compose into larger configurations.
 
-This library is pure mechanism. It doesn't know about specific bundles (even "foundation"). The co-located foundation bundle content is just content - discovered and loaded like any other bundle.
+This library is pure mechanism. It doesn't know about specific bundles. The co-located reference content is just content - discovered and loaded like any other bundle.
 
 ## Contributing
 
