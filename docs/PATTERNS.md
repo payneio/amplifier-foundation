@@ -245,9 +245,12 @@ agent_bundle = await load_bundle("./agents/bug-hunter.md")
 result = await prepared.spawn(
     child_bundle=agent_bundle,
     instruction="Find the bug in auth.py",
-    parent_session=session,
+    compose=True,            # Compose with parent bundle (default: True)
+    parent_session=session,  # Inherit UX from parent
+    session_id=None,         # Or provide ID to resume existing sub-session
 )
 
+# Returns: {"output": response, "session_id": child_id}
 print(result["output"])
 ```
 
@@ -391,9 +394,14 @@ async def load_with_fallback(primary: str, fallback: str) -> Bundle:
 
 ```python
 from amplifier_foundation import DiskCache, BundleRegistry
+from pathlib import Path
 
-cache = DiskCache(Path("~/.cache/amplifier"))
-registry = BundleRegistry(cache=cache)
+# DiskCache: Apps decide the cache location
+cache_dir = Path("~/.myapp/cache/bundles").expanduser()
+cache = DiskCache(cache_dir)
+
+# BundleRegistry uses ~/.amplifier by default, or specify custom home
+registry = BundleRegistry(home=Path("~/.myapp").expanduser())
 
 # First load: downloads from git
 bundle = await registry.load("git+https://...")

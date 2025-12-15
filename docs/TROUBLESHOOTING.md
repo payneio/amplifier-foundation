@@ -213,6 +213,90 @@ session:
   context: {module: context-simple}  # Required
 ```
 
+## @Mention Resolution Errors
+
+### "Unknown namespace" Error
+
+**Symptom:**
+```
+MentionResolutionError: Unknown namespace 'myns' in @myns:context/file.md
+```
+
+**Causes:**
+- Referenced namespace not in `source_base_paths`
+- Bundle not included or incorrectly named
+- Typo in namespace name
+
+**Solutions:**
+1. Verify the namespace exists in composed bundles:
+```python
+bundle = base.compose(overlay)
+print(bundle.source_base_paths.keys())  # Should include 'myns'
+```
+
+2. Check bundle names match:
+```yaml
+# included_bundle.md
+bundle:
+  name: myns  # This becomes the namespace
+```
+
+3. Use correct syntax: `@namespace:path/to/file.md`
+
+### "File not found" in @Mention
+
+**Symptom:**
+```
+MentionResolutionError: File not found: context/missing.md for @myns:context/missing.md
+```
+
+**Causes:**
+- File doesn't exist at resolved path
+- Wrong relative path in mention
+- Bundle's base_path incorrectly set
+
+**Solutions:**
+1. Verify the file exists in the source bundle:
+```bash
+ls /path/to/myns-bundle/context/missing.md
+```
+
+2. Check the base_path was correctly tracked:
+```python
+print(bundle.source_base_paths)  # {'myns': Path('/path/to/myns-bundle')}
+```
+
+3. Use `resolve_context_path` to debug resolution:
+```python
+path = bundle.resolve_context_path("guidelines")
+print(f"Resolved to: {path}")
+```
+
+### @Mention Not Resolving
+
+**Symptom:** `@namespace:path` appears literally in output instead of being replaced with file content.
+
+**Causes:**
+- Using raw Bundle instead of PreparedBundle
+- @mention syntax incorrect
+- Resolver not configured
+
+**Solutions:**
+1. Use PreparedBundle which handles @mention resolution:
+```python
+prepared = await bundle.prepare()
+# PreparedBundle resolves @mentions during session creation
+```
+
+2. Check @mention syntax (no spaces):
+```markdown
+# Wrong
+@ foundation : context/file.md
+
+# Right
+@foundation:context/file.md
+```
+
 ## Composition Issues
 
 ### Config Not Merging
@@ -258,13 +342,16 @@ overlay = Bundle(name="overlay", instruction=None)
 - Large repositories
 
 **Solutions:**
-1. Use disk cache:
+1. Use a BundleRegistry which caches by default:
 ```python
-from amplifier_foundation import BundleRegistry, DiskCache
+from amplifier_foundation import BundleRegistry
 from pathlib import Path
 
-cache = DiskCache(Path("~/.cache/amplifier"))
-registry = BundleRegistry(cache=cache)
+# Registry uses ~/.amplifier by default for caching
+registry = BundleRegistry()
+
+# Or specify custom home directory
+registry = BundleRegistry(home=Path("~/.myapp").expanduser())
 ```
 
 2. Use local paths during development

@@ -26,6 +26,7 @@ A bundle contains:
 | `agents` | Named agent configurations | Sub-session delegation |
 | `context` | Context files to include | System instructions |
 | `instruction` | System instruction (markdown body) | "You are a helpful assistant." |
+| `source_base_paths` | Base paths for @mention resolution (internal) | Tracks namespaces during composition |
 
 ### Bundle Format
 
@@ -164,6 +165,35 @@ This separation allows:
 - Bundles to be loaded and inspected without downloading
 - Module installation to happen once before session creation
 - Explicit control over when downloads occur
+
+### @Mention Resolution
+
+PreparedBundle resolves `@mentions` in instructions to include context files from composed bundles.
+
+**Syntax**: `@namespace:path/to/file.md`
+
+```markdown
+---
+bundle:
+  name: my-app
+includes:
+  - foundation  # Provides namespace "foundation"
+---
+
+See @foundation:context/guidelines.md for project guidelines.
+```
+
+**How it works**:
+1. During composition, each bundle's `base_path` is tracked in `source_base_paths` by namespace
+2. When a PreparedBundle resolves instructions, it finds `@namespace:path` references
+3. The path is resolved relative to the namespace's original `base_path`
+4. Content is loaded and included inline
+
+**Namespaces** come from:
+- Bundle names (from `bundle.name`)
+- Explicit namespace assignments during composition
+
+This allows instructions to reference context files from any included bundle without knowing their absolute paths.
 
 ## Bundle Registry
 

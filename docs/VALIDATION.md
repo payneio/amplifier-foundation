@@ -95,14 +95,37 @@ Warning: context.guidelines: Path does not exist: /path/to/guidelines.md
 
 ## Completeness Validation
 
-For bundles that should be directly mountable (e.g., in `bundles/` directory):
+For bundles that should be directly mountable (e.g., in `bundles/` directory).
+
+### Using BundleValidator (Recommended)
 
 ```python
 from amplifier_foundation import BundleValidator
 
 validator = BundleValidator()
 result = validator.validate_completeness(bundle)
+
+# Or raise on errors
+validator.validate_completeness_or_raise(bundle)
 ```
+
+### Convenience Functions
+
+Standalone functions are available directly in the validator module:
+
+```python
+from amplifier_foundation.validator import (
+    validate_bundle_completeness,
+    validate_bundle_completeness_or_raise,
+)
+
+result = validate_bundle_completeness(bundle)
+
+# Or raise on errors
+validate_bundle_completeness_or_raise(bundle)  # Raises BundleValidationError
+```
+
+Note: These convenience functions are not exported from the main `amplifier_foundation` module. Use the BundleValidator class for the standard API.
 
 ### Completeness Requirements
 

@@ -32,6 +32,9 @@ class Bundle:
         context: Dict mapping context name to file path.
         instruction: System instruction from markdown body.
         base_path: Path to bundle root directory.
+        source_base_paths: Dict mapping namespace to base_path for @mention resolution.
+            Tracks original base_path for each bundle during composition, enabling
+            @namespace:path references to resolve correctly to source files.
     """
 
     # Metadata
