@@ -10,7 +10,7 @@ includes:
   - bundle: foundation:behaviors/redaction
   - bundle: foundation:behaviors/todo-reminder
   - bundle: foundation:behaviors/streaming-ui
-  - bundle: recipes
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-recipes@main
 
 session:
   orchestrator:
