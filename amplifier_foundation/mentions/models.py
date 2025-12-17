@@ -28,8 +28,9 @@ class MentionResult:
     resolved_path: Path | None
     content: str | None
     error: str | None
+    is_directory: bool = False  # True if resolved_path is a directory
 
     @property
     def found(self) -> bool:
-        """True if the mention was successfully resolved."""
-        return self.resolved_path is not None and self.content is not None
+        """True if the mention was successfully resolved (file or directory)."""
+        return self.resolved_path is not None and (self.content is not None or self.is_directory)

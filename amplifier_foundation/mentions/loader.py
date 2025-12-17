@@ -135,6 +135,16 @@ async def _resolve_mention(
             error=None,  # Opportunistic - no error for not found
         )
 
+    # Check if path is a directory (don't try to read it)
+    if path.is_dir():
+        return MentionResult(
+            mention=mention,
+            resolved_path=path,
+            content=None,  # Directories have no content at foundation level
+            error=None,
+            is_directory=True,
+        )
+
     # Read file
     try:
         content = await read_with_retry(path)

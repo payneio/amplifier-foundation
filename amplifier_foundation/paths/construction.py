@@ -35,12 +35,19 @@ def construct_context_path(base: Path, name: str) -> Path:
         'context/shared/common-agent-base.md'  -> context/shared/common-agent-base.md
         'providers/anthropic.yaml'             -> providers/anthropic.yaml
         'agents/explorer.md'                   -> agents/explorer.md
+        '' or '/' -> base (bundle root)
 
     Args:
         base: Base directory (bundle root).
         name: Path to file relative to bundle root (explicit, no implicit prefix).
 
     Returns:
-        Path to file.
+        Path to file (or base if name is empty/root).
     """
+    # Strip leading "/" to prevent path from becoming absolute
+    # (Python's Path("/base") / "/" = Path("/") which is wrong)
+    # Also handle empty string for bundle root access
+    name = name.lstrip("/")
+    if not name:
+        return base
     return base / name
