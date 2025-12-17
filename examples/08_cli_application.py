@@ -31,10 +31,9 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from amplifier_foundation import Bundle, load_bundle
-
+from amplifier_foundation import Bundle
+from amplifier_foundation import load_bundle
 
 # =============================================================================
 # SECTION 1: Configuration Management
@@ -275,7 +274,7 @@ async def main():
     try:
         config = AppConfig.from_env()
         config.validate()
-        print(f"✓ Configuration loaded")
+        print("✓ Configuration loaded")
         print(f"  Provider: {config.provider_bundle}")
         print(f"  Log level: {config.log_level}")
     except Exception as e:

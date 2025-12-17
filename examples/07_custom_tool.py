@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from amplifier_core import ToolResult
-from amplifier_foundation import Bundle, load_bundle
-
+from amplifier_foundation import Bundle
+from amplifier_foundation import load_bundle
 
 # =============================================================================
 # STEP 1: Define Your Custom Tool
@@ -176,7 +176,8 @@ async def mount_custom_tools(coordinator, config: dict):
     # Optional: Return cleanup function
     async def cleanup():
         # Close connections, release resources, etc.
-        pass
+        # In a real app: close DB connections, release file handles, etc.
+        print("Cleanup: releasing resources (no-op in this example)")
 
     return cleanup
 

@@ -59,3 +59,11 @@ class ContentDeduplicator:
         """
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         return content_hash in self._seen_hashes
+
+    def get_known_hashes(self) -> set[str]:
+        """Return hashes currently tracked by the deduplicator.
+
+        Returns:
+            Set of SHA-256 hash strings for all seen content.
+        """
+        return set(self._seen_hashes)

@@ -30,8 +30,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from amplifier_foundation import Bundle, load_bundle
-
+from amplifier_foundation import Bundle
+from amplifier_foundation import load_bundle
 
 # =============================================================================
 # SECTION 1: Define Specialized Agents

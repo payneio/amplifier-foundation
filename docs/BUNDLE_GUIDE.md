@@ -295,10 +295,10 @@ The namespace is the bundle name. Paths are relative to the bundle root.
 
 ```bash
 # Load from local file
-amplifier --bundle ./bundle.md run "prompt"
+amplifier run --bundle ./bundle.md "prompt"
 
 # Load from git URL
-amplifier --bundle git+https://github.com/org/amplifier-bundle-foo@main run "prompt"
+amplifier run --bundle git+https://github.com/org/amplifier-bundle-foo@main "prompt"
 
 # Include in another bundle
 includes:
