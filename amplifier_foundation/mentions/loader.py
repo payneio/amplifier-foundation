@@ -53,16 +53,21 @@ def format_context_block(
 
     blocks = []
     for cf in unique_files:
-        # Build paths attribute showing @mention → absolute path
-        resolved = cf.path.resolve()
-        mentions = path_to_mentions.get(resolved, [])
-        if mentions:
-            # Show each @mention with its resolved path
-            paths_attr = ", ".join(f"{m} → {resolved}" for m in mentions)
-        else:
-            # No @mention tracked, just show path
-            paths_attr = str(resolved)
+        # Build paths attribute showing @mention → absolute path for ALL paths
+        # (ContextFile now tracks multiple paths where same content was found)
+        path_displays = []
+        for p in cf.paths:
+            resolved = p.resolve()
+            mentions = path_to_mentions.get(resolved, [])
+            if mentions:
+                # Show each @mention with its resolved path
+                for m in mentions:
+                    path_displays.append(f"{m} → {resolved}")
+            else:
+                # No @mention tracked, just show path
+                path_displays.append(str(resolved))
 
+        paths_attr = ", ".join(path_displays)
         block = f'<context_file paths="{paths_attr}">\n{cf.content}\n</context_file>'
         blocks.append(block)
 

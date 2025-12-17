@@ -8,11 +8,16 @@ from pathlib import Path
 
 @dataclass
 class ContextFile:
-    """A context file loaded from an @mention."""
+    """A context file loaded from an @mention.
 
-    path: Path
+    Supports multi-path attribution: when the same content is found at multiple
+    paths (e.g., @foundation:foo.md and @recipes:bar.md), all paths are tracked
+    so users/models know all @mentions that resolved to this content.
+    """
+
     content: str
     content_hash: str  # SHA-256 hash for deduplication
+    paths: list[Path]  # All paths where this content was found (for attribution)
 
 
 @dataclass
