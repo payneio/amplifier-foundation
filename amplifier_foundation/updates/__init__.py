@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from amplifier_foundation.paths.resolution import ParsedURI
+from amplifier_foundation.paths.resolution import get_amplifier_home
 from amplifier_foundation.paths.resolution import parse_uri
 from amplifier_foundation.sources.git import GitSourceHandler
 from amplifier_foundation.sources.protocol import SourceStatus
@@ -93,7 +94,7 @@ class BundleStatus:
 
 def _get_cache_dir() -> Path:
     """Get the default cache directory for modules."""
-    return Path.home() / ".amplifier" / "modules"
+    return get_amplifier_home() / "cache"
 
 
 def _collect_source_uris(bundle: Bundle) -> list[str]:
