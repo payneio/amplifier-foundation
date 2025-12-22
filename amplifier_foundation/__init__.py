@@ -42,6 +42,7 @@ from amplifier_foundation.exceptions import BundleValidationError
 
 # I/O utilities
 from amplifier_foundation.io.files import read_with_retry
+from amplifier_foundation.io.files import write_with_backup
 from amplifier_foundation.io.files import write_with_retry
 from amplifier_foundation.io.frontmatter import parse_frontmatter
 from amplifier_foundation.io.yaml import read_yaml
@@ -68,11 +69,18 @@ from amplifier_foundation.registry import BundleRegistry
 from amplifier_foundation.registry import BundleState
 from amplifier_foundation.registry import UpdateInfo
 from amplifier_foundation.registry import load_bundle
+
+# Serialization utilities
+from amplifier_foundation.serialization import sanitize_for_json
+from amplifier_foundation.serialization import sanitize_message
 from amplifier_foundation.sources.protocol import SourceHandlerProtocol
 from amplifier_foundation.sources.protocol import SourceHandlerWithStatusProtocol
 from amplifier_foundation.sources.protocol import SourceResolverProtocol
 from amplifier_foundation.sources.protocol import SourceStatus
 from amplifier_foundation.sources.resolver import SimpleSourceResolver
+
+# Tracing utilities
+from amplifier_foundation.tracing import generate_sub_session_id
 
 # Updates - bundle update checking and refresh
 from amplifier_foundation.updates import BundleStatus
@@ -128,6 +136,12 @@ __all__ = [
     "parse_frontmatter",
     "read_with_retry",
     "write_with_retry",
+    "write_with_backup",
+    # Serialization
+    "sanitize_for_json",
+    "sanitize_message",
+    # Tracing
+    "generate_sub_session_id",
     # Dicts
     "deep_merge",
     "merge_module_lists",
