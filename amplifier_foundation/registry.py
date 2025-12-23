@@ -302,8 +302,10 @@ class BundleRegistry:
                 logger.debug(f"Registered bundle for namespace resolution: {bundle.name}")
 
             # Update state for known bundle (pre-registered via well-known bundles, etc.)
-            if registered_name:
-                state = self._registry[registered_name]
+            # Handle both: loaded by registered name OR loaded by URI but bundle.name matches registry
+            update_name = registered_name or (bundle.name if bundle.name in self._registry else None)
+            if update_name:
+                state = self._registry[update_name]
                 state.version = bundle.version
                 state.loaded_at = datetime.now()
                 state.local_path = str(local_path)
