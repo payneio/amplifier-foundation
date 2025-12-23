@@ -287,8 +287,11 @@ class BundleRegistry:
                             f"@{bundle.name}: -> {resolved.source_root}"
                         )
 
-            # Auto-register if loading by URI
-            if auto_register and registered_name is None and bundle.name:
+            # Register bundle for namespace resolution before processing includes.
+            # This is needed even when auto_register=False because the bundle's
+            # own includes may reference its namespace (self-referencing includes
+            # like "design-intelligence:behaviors/design-intelligence").
+            if bundle.name and bundle.name not in self._registry:
                 self._registry[bundle.name] = BundleState(
                     uri=uri,
                     name=bundle.name,
@@ -296,9 +299,9 @@ class BundleRegistry:
                     loaded_at=datetime.now(),
                     local_path=str(local_path),
                 )
-                logger.debug(f"Auto-registered bundle: {bundle.name}")
+                logger.debug(f"Registered bundle for namespace resolution: {bundle.name}")
 
-            # Update state for known bundle
+            # Update state for known bundle (pre-registered via well-known bundles, etc.)
             if registered_name:
                 state = self._registry[registered_name]
                 state.version = bundle.version
