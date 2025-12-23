@@ -57,6 +57,7 @@ class Bundle:
     # Internal
     base_path: Path | None = None
     source_base_paths: dict[str, Path] = field(default_factory=dict)  # Track base_path for each source namespace
+    _pending_context: dict[str, str] = field(default_factory=dict)  # Context refs needing namespace resolution
 
     def compose(self, *others: Bundle) -> Bundle:
         """Compose this bundle with others (later overrides earlier).
@@ -87,6 +88,9 @@ class Bundle:
                 prefixed_key = key
             initial_context[prefixed_key] = path
 
+        # Copy pending context (already has namespace prefixes from _parse_context)
+        initial_pending_context: dict[str, str] = dict(self._pending_context) if self._pending_context else {}
+
         result = Bundle(
             name=self.name,
             version=self.version,
@@ -98,6 +102,7 @@ class Bundle:
             hooks=list(self.hooks),
             agents=dict(self.agents),
             context=initial_context,
+            _pending_context=initial_pending_context,
             instruction=self.instruction,
             base_path=self.base_path,
             source_base_paths=initial_base_paths,
@@ -141,6 +146,10 @@ class Bundle:
                 else:
                     prefixed_key = key
                 result.context[prefixed_key] = path
+
+            # Pending context: accumulate (already has namespace prefixes)
+            if other._pending_context:
+                result._pending_context.update(other._pending_context)
 
             # Instruction: later replaces
             if other.instruction:
@@ -312,6 +321,40 @@ class Bundle:
         """
         return self.instruction
 
+    def resolve_pending_context(self) -> None:
+        """Resolve any pending namespaced context references using source_base_paths.
+
+        Context includes with namespace prefixes (e.g., "foundation:context/file.md")
+        are stored as pending during parsing because source_base_paths isn't available
+        yet. This method resolves them after composition when source_base_paths is
+        fully populated.
+
+        Call this before accessing self.context to ensure all paths are resolved.
+        """
+        if not self._pending_context:
+            return
+
+        for name, ref in list(self._pending_context.items()):
+            # ref format: "namespace:path/to/file.md"
+            if ":" not in ref:
+                continue
+
+            namespace, path_part = ref.split(":", 1)
+
+            # Try to resolve using source_base_paths
+            if namespace in self.source_base_paths:
+                base = self.source_base_paths[namespace]
+                resolved_path = construct_context_path(base, path_part)
+                self.context[name] = resolved_path
+                del self._pending_context[name]
+            elif self.base_path:
+                # Fallback: if namespace matches this bundle's name, use base_path
+                # This handles self-referencing context includes
+                if namespace == self.name:
+                    resolved_path = construct_context_path(self.base_path, path_part)
+                    self.context[name] = resolved_path
+                    del self._pending_context[name]
+
     @classmethod
     def from_dict(cls, data: dict[str, Any], base_path: Path | None = None) -> Bundle:
         """Create Bundle from parsed dict (from YAML/frontmatter).
@@ -325,6 +368,9 @@ class Bundle:
         """
         bundle_meta = data.get("bundle", {})
 
+        # Parse context - returns (resolved, pending) tuple
+        resolved_context, pending_context = _parse_context(data.get("context", {}), base_path)
+
         return cls(
             name=bundle_meta.get("name", ""),
             version=bundle_meta.get("version", "1.0.0"),
@@ -335,7 +381,8 @@ class Bundle:
             tools=data.get("tools", []),
             hooks=data.get("hooks", []),
             agents=_parse_agents(data.get("agents", {}), base_path),
-            context=_parse_context(data.get("context", {}), base_path),
+            context=resolved_context,
+            _pending_context=pending_context,
             instruction=None,  # Set separately from markdown body
             base_path=base_path,
         )
@@ -364,35 +411,45 @@ def _parse_agents(agents_config: dict[str, Any], base_path: Path | None) -> dict
     return result
 
 
-def _parse_context(context_config: dict[str, Any], base_path: Path | None) -> dict[str, Path]:
+def _parse_context(context_config: dict[str, Any], base_path: Path | None) -> tuple[dict[str, Path], dict[str, str]]:
     """Parse context config section.
 
     Handles both include lists and direct path mappings.
-    Context names may have bundle prefix (e.g., "foundation:file.md") which
-    should be stripped when constructing paths.
+    Context names with bundle prefix (e.g., "foundation:file.md") are stored
+    as pending for later resolution using source_base_paths.
+
+    Returns:
+        Tuple of (resolved_context, pending_context):
+        - resolved_context: Dict of name -> Path for immediately resolvable paths
+        - pending_context: Dict of name -> original_ref for namespaced refs needing
+          deferred resolution via source_base_paths
     """
     if not context_config:
-        return {}
+        return {}, {}
 
-    result: dict[str, Path] = {}
+    resolved: dict[str, Path] = {}
+    pending: dict[str, str] = {}
 
     # Handle include list
     if "include" in context_config:
         for name in context_config["include"]:
-            if base_path:
-                # Strip bundle prefix if present (e.g., "foundation:file.md" -> "file.md")
-                path_part = name.split(":", 1)[-1] if ":" in name else name
-                result[name] = construct_context_path(base_path, path_part)
+            if ":" in name:
+                # Has namespace prefix - needs deferred resolution via source_base_paths
+                # Store the original ref for resolution later when source_base_paths is available
+                pending[name] = name
+            elif base_path:
+                # No namespace prefix - resolve immediately using local base_path
+                resolved[name] = construct_context_path(base_path, name)
 
-    # Handle direct path mappings
+    # Handle direct path mappings (no namespace support for direct mappings)
     for key, value in context_config.items():
         if key != "include" and isinstance(value, str):
             if base_path:
-                result[key] = base_path / value
+                resolved[key] = base_path / value
             else:
-                result[key] = Path(value)
+                resolved[key] = Path(value)
 
-    return result
+    return resolved, pending
 
 
 class BundleModuleSource:
@@ -517,9 +574,12 @@ class PreparedBundle:
         # Initialize the session (loads all modules)
         await session.initialize()
 
+        # Resolve any pending namespaced context references now that source_base_paths is available
+        self.bundle.resolve_pending_context()
+
         # Inject system instruction with resolved @mentions (if present)
         # Also inject context.include files (accumulated from all composed bundles)
-        if self.bundle.instruction or self.bundle.context:
+        if self.bundle.instruction or self.bundle.context or self.bundle._pending_context:
             from dataclasses import replace as dataclass_replace
 
             from amplifier_foundation.mentions import BaseMentionResolver

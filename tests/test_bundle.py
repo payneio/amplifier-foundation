@@ -155,3 +155,104 @@ class TestBundleResolveContext:
         bundle = Bundle(name="test")
         result = bundle.resolve_context_path("unknown")
         assert result is None
+
+
+class TestBundlePendingContext:
+    """Tests for deferred namespace context resolution."""
+
+    def test_parse_context_defers_namespaced_refs(self) -> None:
+        """Context includes with namespace prefixes are stored as pending."""
+        data = {
+            "bundle": {"name": "test"},
+            "context": {
+                "include": [
+                    "local-file.md",
+                    "myns:context/namespaced-file.md",
+                ]
+            },
+        }
+        bundle = Bundle.from_dict(data, base_path=Path("/base"))
+
+        # Local file should be resolved immediately
+        assert "local-file.md" in bundle.context
+        assert bundle.context["local-file.md"] == Path("/base/local-file.md")
+
+        # Namespaced file should be pending
+        assert "myns:context/namespaced-file.md" not in bundle.context
+        assert "myns:context/namespaced-file.md" in bundle._pending_context
+
+    def test_resolve_pending_context_with_source_base_paths(self) -> None:
+        """Pending context is resolved using source_base_paths."""
+        bundle = Bundle(
+            name="test",
+            _pending_context={"myns:context/file.md": "myns:context/file.md"},
+            source_base_paths={"myns": Path("/namespace/root")},
+        )
+
+        bundle.resolve_pending_context()
+
+        # Should be resolved now
+        assert "myns:context/file.md" in bundle.context
+        assert bundle.context["myns:context/file.md"] == Path("/namespace/root/context/file.md")
+        # Should be removed from pending
+        assert "myns:context/file.md" not in bundle._pending_context
+
+    def test_resolve_pending_context_self_reference(self) -> None:
+        """Pending context with self-namespace uses base_path."""
+        bundle = Bundle(
+            name="myns",
+            base_path=Path("/bundle/root"),
+            _pending_context={"myns:context/file.md": "myns:context/file.md"},
+        )
+
+        bundle.resolve_pending_context()
+
+        # Should be resolved using base_path (self-reference)
+        assert "myns:context/file.md" in bundle.context
+        assert bundle.context["myns:context/file.md"] == Path("/bundle/root/context/file.md")
+
+    def test_compose_merges_pending_context(self) -> None:
+        """Compose merges pending context from both bundles."""
+        base = Bundle(
+            name="base",
+            _pending_context={"ns1:file1.md": "ns1:file1.md"},
+        )
+        child = Bundle(
+            name="child",
+            _pending_context={"ns2:file2.md": "ns2:file2.md"},
+        )
+
+        result = base.compose(child)
+
+        assert "ns1:file1.md" in result._pending_context
+        assert "ns2:file2.md" in result._pending_context
+
+    def test_pending_context_resolved_after_compose(self) -> None:
+        """After compose, pending context can be resolved with merged source_base_paths."""
+        base = Bundle(
+            name="base",
+            base_path=Path("/base/root"),
+            source_base_paths={"ns1": Path("/ns1/root")},
+            _pending_context={"ns1:context/a.md": "ns1:context/a.md"},
+        )
+        child = Bundle(
+            name="child",
+            base_path=Path("/child/root"),
+            source_base_paths={"ns2": Path("/ns2/root")},
+            _pending_context={"ns2:context/b.md": "ns2:context/b.md"},
+        )
+
+        result = base.compose(child)
+
+        # Both namespaces should be available in result
+        assert "ns1" in result.source_base_paths
+        assert "ns2" in result.source_base_paths
+
+        # Resolve pending context
+        result.resolve_pending_context()
+
+        # Both should be resolved
+        assert "ns1:context/a.md" in result.context
+        assert "ns2:context/b.md" in result.context
+        assert result.context["ns1:context/a.md"] == Path("/ns1/root/context/a.md")
+        assert result.context["ns2:context/b.md"] == Path("/ns2/root/context/b.md")
