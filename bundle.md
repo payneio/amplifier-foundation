@@ -11,6 +11,7 @@ includes:
   - bundle: foundation:behaviors/todo-reminder
   - bundle: foundation:behaviors/streaming-ui
   - bundle: git+https://github.com/microsoft/amplifier-bundle-recipes@main#subdirectory=behaviors/recipes.yaml
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-design-intelligence@main#subdirectory=behaviors/design-intelligence.yaml
 
 session:
   orchestrator:
