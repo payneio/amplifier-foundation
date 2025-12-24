@@ -5,11 +5,16 @@ bundle:
   description: Foundation bundle - provider-agnostic base configuration
 
 includes:
+  # Ecosystem expert behaviors (provides @amplifier: and @core: namespaces)
+  - bundle: git+https://github.com/microsoft/amplifier@main#subdirectory=behaviors/amplifier-expert.yaml
+  - bundle: git+https://github.com/microsoft/amplifier-core@main#subdirectory=behaviors/core-expert.yaml
+  # Foundation behaviors
   - bundle: foundation:behaviors/logging
   - bundle: foundation:behaviors/status-context
   - bundle: foundation:behaviors/redaction
   - bundle: foundation:behaviors/todo-reminder
   - bundle: foundation:behaviors/streaming-ui
+  # External bundles
   - bundle: git+https://github.com/microsoft/amplifier-bundle-recipes@main#subdirectory=behaviors/recipes.yaml
   - bundle: git+https://github.com/microsoft/amplifier-bundle-design-intelligence@main#subdirectory=behaviors/design-intelligence.yaml
 
@@ -41,6 +46,8 @@ tools:
 
 agents:
   include:
+    # Note: amplifier-expert and core-expert come via included behaviors above
+    - foundation:foundation-expert
     - foundation:bug-hunter
     - foundation:explorer
     - foundation:integration-specialist
@@ -62,14 +69,20 @@ agents:
 
 You are the Coordinator Agent orchestrating sub-agents to achieve the task:
 
-Key agents you should ALWAYS use:
+### Expert Agents (Consult for Knowledge)
+
+- **amplifier:amplifier-expert** - THE authoritative consultant for ALL Amplifier ecosystem knowledge. Consult FIRST for any Amplifier-related work, understanding what's possible, and validation.
+- **core:core-expert** - Expert on kernel internals, module protocols, events/hooks, and "kernel vs module" decisions.
+- **foundation:foundation-expert** - Expert on bundle composition, examples, patterns, and building applications.
+
+### Implementation Agents (Key agents you should ALWAYS use)
 
 - foundation:zen-architect - analyzes problems, designs architecture, and reviews code quality.
 - foundation:modular-builder - implements code from specifications following modular design principles.
 - foundation:bug-hunter - identifies and fixes bugs in the codebase.
 - foundation:post-task-cleanup - ensures the workspace is tidy and all temporary files are removed.
 
-Additional specialized agents available based on task needs:
+### Specialized Agents (Based on task needs)
 
 - foundation:test-coverage - ensures comprehensive test coverage.
 - foundation:security-guardian - for security reviews and vulnerability assessment.
