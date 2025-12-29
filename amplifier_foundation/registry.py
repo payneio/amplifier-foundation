@@ -512,7 +512,8 @@ class BundleRegistry:
         Resolution priority:
         1. URIs: git+, http://, https://, file:// → Return as-is
         2. namespace:path syntax (e.g., foundation:behaviors/streaming-ui)
-           → Look up namespace's local_path, resolve path within it
+           → Look up namespace's original URI, construct git URI with #subdirectory=
+           → Falls back to file:// only for non-git sources
         3. Plain names → Return as-is (let _load_single handle registry lookup)
 
         Args:
@@ -531,38 +532,81 @@ class BundleRegistry:
 
             # Look up the namespace in the registry
             state = self._registry.get(namespace)
-            if state and state.local_path:
-                namespace_path = Path(state.local_path)
+            if not state:
+                logger.debug(f"Namespace '{namespace}' not found in registry")
+                return None
 
-                # Resolve the path within the namespace's bundle directory
+            # Try to construct a git URI with #subdirectory= from the parent's source URI
+            # This preserves the connection to the original source for proper sub-bundle detection
+            if state.uri and state.uri.startswith("git+"):
+                # Parse the parent's git URI and append subdirectory
+                # Handle existing #subdirectory= fragments
+                base_uri = state.uri.split("#")[0]  # Remove any existing fragment
+                
+                # Verify the path exists locally before constructing the URI
+                if state.local_path:
+                    namespace_path = Path(state.local_path)
+                    if namespace_path.is_file():
+                        resource_path = namespace_path.parent / rel_path
+                    else:
+                        resource_path = namespace_path / rel_path
+
+                    # Try common extensions
+                    resolved_path = self._find_resource_path(resource_path)
+                    if resolved_path:
+                        # Get the relative path from the namespace root
+                        if namespace_path.is_file():
+                            rel_from_root = resolved_path.relative_to(namespace_path.parent)
+                        else:
+                            rel_from_root = resolved_path.relative_to(namespace_path)
+                        
+                        return f"{base_uri}#subdirectory={rel_from_root}"
+
+                logger.debug(f"Namespace '{namespace}' is git-based but path '{rel_path}' not found locally")
+                return None
+
+            # Fall back to file:// for non-git sources (local bundles, etc.)
+            if state.local_path:
+                namespace_path = Path(state.local_path)
                 if namespace_path.is_file():
-                    # If namespace points to a file, resolve relative to its parent
                     resource_path = namespace_path.parent / rel_path
                 else:
-                    # If namespace points to a directory, resolve relative to it
                     resource_path = namespace_path / rel_path
 
-                # Try common extensions if path doesn't exist directly
-                candidates = [
-                    resource_path,
-                    resource_path.with_suffix(".yaml"),
-                    resource_path.with_suffix(".yml"),
-                    resource_path.with_suffix(".md"),
-                    resource_path / "bundle.yaml",
-                    resource_path / "bundle.md",
-                ]
-                for candidate in candidates:
-                    if candidate.exists():
-                        return f"file://{candidate.resolve()}"
+                resolved_path = self._find_resource_path(resource_path)
+                if resolved_path:
+                    return f"file://{resolved_path}"
 
                 logger.debug(f"Namespace '{namespace}' found but path '{rel_path}' not found within it")
             else:
-                logger.debug(f"Namespace '{namespace}' not found in registry or has no local_path")
+                logger.debug(f"Namespace '{namespace}' has no local_path")
 
             return None
 
         # 3. Plain name - return as-is for registry lookup
         return source
+
+    def _find_resource_path(self, base_path: Path) -> Path | None:
+        """Find a resource path, trying common extensions.
+
+        Args:
+            base_path: Base path to try.
+
+        Returns:
+            Resolved path if found, None otherwise.
+        """
+        candidates = [
+            base_path,
+            base_path.with_suffix(".yaml"),
+            base_path.with_suffix(".yml"),
+            base_path.with_suffix(".md"),
+            base_path / "bundle.yaml",
+            base_path / "bundle.md",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+        return None
 
     def _parse_include(self, include: str | dict[str, Any]) -> str | None:
         """Parse include directive to source string."""
