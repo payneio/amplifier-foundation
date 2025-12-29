@@ -316,6 +316,24 @@ class BundleRegistry:
                         f"Sub-bundle '{bundle.name}' registered root namespace "
                         f"@{root_bundle.name}: -> {resolved.source_root}"
                     )
+
+                    # Register the root bundle itself if not already registered
+                    # This ensures root bundles are tracked for version updates
+                    # even when only accessed via sub-bundle includes
+                    if root_bundle.name not in self._registry:
+                        # Construct root bundle URI by stripping #subdirectory= fragment
+                        root_uri = uri.split("#")[0] if "#" in uri else uri
+                        self._registry[root_bundle.name] = BundleState(
+                            uri=root_uri,
+                            name=root_bundle.name,
+                            version=root_bundle.version,
+                            loaded_at=datetime.now(),
+                            local_path=str(root_bundle_path.parent),  # Directory, not file
+                            is_root=True,
+                            root_name=None,
+                        )
+                        logger.debug(f"Registered root bundle: {root_bundle.name}")
+
                 # Also register subdirectory bundle's own name if different
                 if bundle.name and bundle.name != root_bundle.name:
                     bundle.source_base_paths[bundle.name] = resolved.source_root
