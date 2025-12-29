@@ -29,7 +29,7 @@ class FileSourceHandler:
 
         Args:
             parsed: Parsed URI components.
-            cache_dir: Not used for local files.
+            cache_dir: Cache directory for detecting cached bundle paths.
 
         Returns:
             ResolvedSource with active_path and source_root.
@@ -41,18 +41,62 @@ class FileSourceHandler:
 
         # Handle relative paths
         if path_str.startswith("./") or path_str.startswith("../"):
-            source_root = self.base_path / path_str
+            resolved_path = self.base_path / path_str
         else:
-            source_root = Path(path_str)
+            resolved_path = Path(path_str)
 
-        source_root = source_root.resolve()
+        resolved_path = resolved_path.resolve()
 
         # Apply subpath if specified (from #subdirectory= fragment)
-        active_path = source_root
+        active_path = resolved_path
         if parsed.subpath:
-            active_path = source_root / parsed.subpath
+            active_path = resolved_path / parsed.subpath
 
         if not active_path.exists():
             raise BundleNotFoundError(f"File not found: {active_path}")
 
+        # Determine source_root: the actual repository/bundle root
+        # If the file is within the cache directory, find the repository root
+        # (first-level directory under cache). This enables sub-bundle detection
+        # for file:// URIs pointing to files within cached repositories.
+        source_root = self._find_source_root(active_path, cache_dir)
+
         return ResolvedSource(active_path=active_path, source_root=source_root)
+
+    def _find_source_root(self, active_path: Path, cache_dir: Path) -> Path:
+        """Find the actual source root for a file path.
+
+        For files within the cache directory, the source root is the
+        repository directory (first level under cache). This enables
+        proper sub-bundle detection for behaviors, providers, etc.
+        that are loaded via file:// URIs from within cached bundles.
+
+        Args:
+            active_path: The resolved file path.
+            cache_dir: The cache directory to check against.
+
+        Returns:
+            The source root path.
+        """
+        cache_dir = cache_dir.resolve()
+
+        try:
+            # Check if active_path is within the cache directory
+            relative = active_path.relative_to(cache_dir)
+
+            # The first component is the repository folder name
+            # e.g., for "amplifier-foundation-abc123/behaviors/logging.yaml"
+            # the repo folder is "amplifier-foundation-abc123"
+            if relative.parts:
+                repo_folder = relative.parts[0]
+                return cache_dir / repo_folder
+
+        except ValueError:
+            # Path is not within cache_dir
+            pass
+
+        # For non-cached paths or if detection fails, use the path itself
+        # (or parent directory if it's a file)
+        if active_path.is_file():
+            return active_path.parent
+        return active_path
