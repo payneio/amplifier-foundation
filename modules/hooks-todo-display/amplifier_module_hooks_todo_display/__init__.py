@@ -172,6 +172,8 @@ class TodoDisplayHooks:
         indent: str
     ) -> None:
         """Render single-line condensed progress view."""
+        width = self.config.max_width
+        
         # Find current task
         current_task = ""
         for todo in todos:
@@ -182,13 +184,21 @@ class TodoDisplayHooks:
         # Build progress bar
         progress_bar = self._build_progress_bar(completed, count)
         
+        # Calculate available space for task text dynamically
+        # Content format: " {progress_bar} {completed}/{count} {symbol} {task}"
+        # Fixed elements: space(1) + progress_bar + space(1) + count_str + space(1) + symbol(1) + space(1)
+        count_str = f"{completed}/{count}"
+        fixed_len = 1 + self.config.progress_bar_width + 1 + len(count_str) + 1 + 1 + 1
+        # Leave 1 char buffer for padding calculation
+        max_task_len = max(10, width - fixed_len - 1)
+        
         # Build status line
         if count == completed:
             # All done!
             status = f"{Colors.BOLD_GREEN}{Symbols.COMPLETED} Complete{Colors.RESET}"
         elif current_task:
-            # Show current task
-            status = f"{Colors.BOLD_CYAN}{Symbols.IN_PROGRESS} {self._truncate(current_task, 30)}{Colors.RESET}"
+            # Show current task (dynamically calculated truncation)
+            status = f"{Colors.BOLD_CYAN}{Symbols.IN_PROGRESS} {self._truncate(current_task, max_task_len)}{Colors.RESET}"
         else:
             # No current task, show counts
             status = f"{Colors.DIM_GRAY}{pending} pending{Colors.RESET}"
