@@ -196,9 +196,33 @@ find ~/.amplifier/projects/*/sessions -name "metadata.json" -exec grep -l "2025-
 ### By Content/Keywords
 
 ```bash
-# Search transcript content
+# Search transcript content (transcript.jsonl is usually safe)
 grep -r "authentication" ~/.amplifier/projects/*/sessions/*/transcript.jsonl
+
+# CAUTION: For events.jsonl, get line numbers only - lines can be 100k+ tokens
+grep -n "authentication" ~/.amplifier/projects/*/sessions/*/events.jsonl | cut -d: -f1 | head -10
 ```
+
+### Deep Event Analysis (events.jsonl)
+
+**WARNING:** `events.jsonl` files can have 100k+ token lines. Never output full lines.
+
+```bash
+# Safe: Get event type summary
+jq -r '.event' events.jsonl | sort | uniq -c | sort -rn
+
+# Safe: Get LLM usage summary
+jq -c 'select(.event == "llm:response") | {ts, usage: .data.usage}' events.jsonl
+
+# Safe: Find errors by line number only
+grep -n '"error"' events.jsonl | cut -d: -f1 | head -10
+
+# Then surgically extract from specific line
+LINE_NUM=123
+sed -n "${LINE_NUM}p" events.jsonl | jq '{event, ts, error: .data.error}'
+```
+
+See @foundation:context/agents/session-storage-knowledge.md for complete safe extraction patterns.
 
 ## Important Constraints
 
@@ -221,6 +245,12 @@ grep -r "authentication" ~/.amplifier/projects/*/sessions/*/transcript.jsonl
 
 **"All sessions from November 25"**
 → Metadata search filtering by created date
+
+---
+
+## Deep Knowledge: Large File Handling
+
+@foundation:context/agents/session-storage-knowledge.md
 
 ---
 

@@ -86,6 +86,17 @@ I've found some existing telemetry code. Let me mark the first todo as in_progre
   assistant: [Uses the task tool with `agent=foundation:explorer`]
   </example>
 
+## Large Session File Handling
+
+**WARNING:** Amplifier session files (`events.jsonl`) can contain lines with 100k+ tokens. Standard tools (grep, cat) that output full lines will fail or cause context overflow.
+
+When working with session files:
+- Use `grep -n ... | cut -d: -f1` to get line numbers only
+- Use `jq -c '{small_field}'` to extract specific fields
+- Never attempt to read full `events.jsonl` lines
+
+For detailed patterns, delegate to `foundation:session-finder` agent or see `foundation:context/agents/session-storage-knowledge.md`.
+
 @foundation:context/shared/common-agent-base.md
 
 ---
