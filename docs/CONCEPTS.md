@@ -81,6 +81,22 @@ How it works:
 
 This allows instructions to reference files from any included bundle without knowing absolute paths.
 
+## Agents
+
+**Agents are bundles.** They use the same file format (markdown + YAML frontmatter) and are loaded via the same `load_bundle()` function.
+
+The only difference is the frontmatter key:
+- Bundles use `bundle:` with `name` and `version`
+- Agents use `meta:` with `name` and `description`
+
+```python
+# Both use load_bundle()
+bundle = await load_bundle("./bundle.md")
+agent = await load_bundle("./agents/my-agent.md")
+```
+
+See [AGENT_AUTHORING.md](AGENT_AUTHORING.md) for agent-specific guidance (the `description` field pattern).
+
 ## Philosophy
 
 ### Mechanism, Not Policy
