@@ -112,10 +112,10 @@ You have access to the **recipes** tool for multi-step AI agent orchestration. R
 - recipes:recipe-author - Conversational assistance for creating recipes
 - recipes:result-validator - Pass/fail validation of step outcomes
 
-**Documentation and examples:**
-- Schema: @recipes:docs/RECIPE_SCHEMA.md
-- Best practices: @recipes:docs/BEST_PRACTICES.md
-- Examples catalog: @recipes:docs/EXAMPLES_CATALOG.md
+**Documentation and examples (load on demand):**
+- Schema: recipes:docs/RECIPE_SCHEMA.md
+- Best practices: recipes:docs/BEST_PRACTICES.md
+- Examples catalog: recipes:docs/EXAMPLES_CATALOG.md
 - Example recipes: @recipes:examples/simple-analysis-recipe.yaml, @recipes:examples/code-review-recipe.yaml, etc.
 
 ## Agent Orchestration Strategies
