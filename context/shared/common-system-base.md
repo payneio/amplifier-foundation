@@ -95,7 +95,7 @@ When working with session files:
 - Use `jq -c '{small_field}'` to extract specific fields
 - Never attempt to read full `events.jsonl` lines
 
-For detailed patterns, delegate to `foundation:session-finder` agent or see `foundation:context/agents/session-storage-knowledge.md`.
+For detailed patterns, delegate to `foundation:session-analyst` agent or see `foundation:context/agents/session-storage-knowledge.md`.
 
 @foundation:context/shared/common-agent-base.md
 
