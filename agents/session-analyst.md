@@ -294,35 +294,68 @@ You can **repair broken sessions** by rewinding them to a prior state. This is u
 - The user wants to retry from before a problematic exchange
 - Corrupted events are preventing session resumption
 
+### Understanding Session Files
+
+A session directory contains **two critical files** that must be kept in sync:
+
+| File | Purpose | Loaded on Resume? |
+|------|---------|-------------------|
+| `transcript.jsonl` | Conversation messages (user/assistant turns) | **YES** - This is what gets restored |
+| `events.jsonl` | Full audit log (API calls, tool executions, errors) | No - For debugging/logging only |
+| `metadata.json` | Session metadata (profile, timestamps, turn count) | Yes - Session info |
+
+**Critical insight**: When a session resumes, `transcript.jsonl` is loaded to restore conversation context. The `events.jsonl` is the audit log but is NOT used for replay. **Both files must be truncated during a rewind to stay in sync.**
+
 ### Rewind Workflow
 
 1. **Locate the session** - Find the session directory by ID
 2. **Analyze the breakdown** - Identify where/why it broke (orphaned tools, API errors, etc.)
-3. **Find the target point** - Locate the line number of the user message to rewind to
-4. **Create a backup** - ALWAYS backup before modification: `cp events.jsonl events.jsonl.bak`
-5. **Truncate** - Remove lines from (and including) the target point onward
-6. **Verify integrity** - Check that tool events are balanced (pre/post pairs)
+3. **Find the target point** - Locate the message to rewind to in BOTH files
+4. **Create backups** - ALWAYS backup before modification (both files)
+5. **Truncate BOTH files** - Remove lines from the target point onward in transcript.jsonl AND events.jsonl
+6. **Verify integrity** - Check that tool events are balanced (pre/post pairs) in events.jsonl
 7. **Report** - Tell user what was removed and confirm they can resume
 
 ### Rewind Commands
 
 ```bash
-# Find last user message (look for "user_prompt" or role: user)
+# === STEP 1: Examine both files ===
+# Count lines in both files
+wc -l transcript.jsonl events.jsonl
+
+# Find user messages in transcript.jsonl (this is what gets loaded on resume)
+grep -n '"role":"user"' transcript.jsonl | tail -5
+
+# Find corresponding events in events.jsonl (for cross-reference)
 grep -n '"user_prompt"\|"role":"user"' events.jsonl | tail -5
 
-# Count lines to understand scope
-wc -l events.jsonl
-
-# Backup BEFORE any modification
+# === STEP 2: Backup BOTH files BEFORE any modification ===
+cp transcript.jsonl transcript.jsonl.bak
 cp events.jsonl events.jsonl.bak
 
-# Truncate to specific line (keeps lines 1 through N-1)
-head -n $((TARGET_LINE - 1)) events.jsonl > events.jsonl.tmp && mv events.jsonl.tmp events.jsonl
+# === STEP 3: Truncate transcript.jsonl (THE CRITICAL FILE) ===
+# This is what actually gets loaded on resume!
+# TARGET_LINE = the line number of the user message to remove (and everything after)
+head -n $((TRANSCRIPT_TARGET_LINE - 1)) transcript.jsonl > transcript.jsonl.tmp && mv transcript.jsonl.tmp transcript.jsonl
 
-# Verify tool event balance
+# === STEP 4: Truncate events.jsonl (for audit log consistency) ===
+# Find the corresponding event line (may differ from transcript line number)
+head -n $((EVENTS_TARGET_LINE - 1)) events.jsonl > events.jsonl.tmp && mv events.jsonl.tmp events.jsonl
+
+# === STEP 5: Verify integrity ===
+echo "Transcript lines remaining: $(wc -l < transcript.jsonl)"
+echo "Events lines remaining: $(wc -l < events.jsonl)"
 echo "Pre-tool events: $(grep -c 'tool:execute:pre' events.jsonl)"
 echo "Post-tool events: $(grep -c 'tool:execute:post' events.jsonl)"
 ```
+
+### Correlating Line Numbers Between Files
+
+The line numbers in `transcript.jsonl` and `events.jsonl` are DIFFERENT:
+- `transcript.jsonl` has one line per conversation message (user or assistant)
+- `events.jsonl` has many lines per turn (llm:request, llm:response, tool events, etc.)
+
+**To correlate**: Find the timestamp of the target message in `transcript.jsonl`, then find the corresponding `user_prompt` event in `events.jsonl` with a matching timestamp.
 
 ### Safety Rules for Repairs
 
@@ -336,20 +369,20 @@ echo "Post-tool events: $(grep -c 'tool:execute:post' events.jsonl)"
 
 When you modify a session that is **currently running** (typically the parent session that spawned you), the changes won't take effect immediately. This is because:
 
-- Running sessions hold their conversation context **in memory**
-- Changes to `events.jsonl` on disk are not automatically reloaded
+- Running sessions hold their conversation context **in memory** (loaded from `transcript.jsonl`)
+- Changes to files on disk are not automatically reloaded
 - The session must be restarted to re-read from disk
 
 **Always inform the caller when modifying their parent/current session:**
 
-> "I've rewound session `{session_id}` to line {N}. Since this is your currently active session, you'll need to **close and resume** it to see the changes:
+> "I've rewound session `{session_id}` by truncating both `transcript.jsonl` (to line {N}) and `events.jsonl` (to line {M}). Since this is your currently active session, you'll need to **close and resume** it to see the changes:
 > 1. Exit your current session (Ctrl-D or `/exit`)
 > 2. Resume with: `amplifier session resume {session_id}`"
 
 This applies to:
-- Rewinds (truncating events.jsonl)
-- Repairs (fixing corrupted events)
-- Any modification to events.jsonl of a running session
+- Rewinds (truncating both transcript.jsonl and events.jsonl)
+- Repairs (fixing corrupted events or conversation state)
+- Any modification to session files of a running session
 
 If the session being modified is NOT the parent session (e.g., an old session the user asked about), this caveat doesn't apply - just report the changes normally.
 
