@@ -254,6 +254,39 @@ result = await prepared.spawn(
 print(result["output"])
 ```
 
+### Controlling Agent Tool Inheritance
+
+By default, spawned agents inherit all tools from their parent. Use the `spawn` section to control this:
+
+```yaml
+# In your bundle.md
+spawn:
+  exclude_tools: [tool-task]  # Agents inherit all EXCEPT these
+```
+
+Or specify an explicit list:
+
+```yaml
+spawn:
+  tools: [tool-filesystem, tool-bash]  # Agents get ONLY these
+```
+
+**Common pattern**: Prevent agents from delegating further:
+
+```yaml
+# Coordinator has task tool for orchestration
+tools:
+  - module: tool-task
+  - module: tool-filesystem
+  - module: tool-bash
+
+# But agents can't delegate (no recursion)
+spawn:
+  exclude_tools: [tool-task]
+```
+
+This ensures agents do the work themselves rather than trying to spawn sub-agents.
+
 ### Agent Resolution Pattern
 
 Apps typically resolve agent names to bundles:

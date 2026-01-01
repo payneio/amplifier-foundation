@@ -22,6 +22,7 @@ Bundle → to_mount_plan() → Mount Plan → AmplifierSession
 | `agents` | Named agent configurations |
 | `context` | Context files to include |
 | `instruction` | System instruction (markdown body) |
+| `spawn` | Tool inheritance policy for spawned agents |
 
 Bundles are markdown files with YAML frontmatter. See [PATTERNS.md](PATTERNS.md) for format examples.
 
@@ -41,6 +42,7 @@ result = base.compose(overlay)  # Later overrides earlier
 | `providers` | Merge by module ID |
 | `tools` | Merge by module ID |
 | `hooks` | Merge by module ID |
+| `spawn` | Deep merge (later overrides) |
 | `instruction` | Replace (later wins) |
 
 **Module ID merge**: Same ID = update config, new ID = add to list.

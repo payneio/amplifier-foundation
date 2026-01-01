@@ -13,6 +13,7 @@ A **bundle** is a composable unit of configuration that produces a mount plan fo
 - **Hooks** - Observability and control mechanisms
 - **Providers** - LLM backend configurations
 - **Instructions** - System prompts and context
+- **Spawn Policy** - Controls what tools spawned agents inherit
 
 Bundles are the primary way to share and compose AI agent configurations.
 
@@ -561,6 +562,12 @@ tools:
     config:
       setting: value
 
+# Control what tools spawned agents inherit
+spawn:
+  exclude_tools: [tool-task]        # Agents inherit all EXCEPT these
+  # OR use explicit list:
+  # tools: [tool-a, tool-b]         # Agents get ONLY these tools
+
 agents:
   include:
     - my-bundle:agent-name          # Reference agents in this bundle
@@ -612,6 +619,7 @@ includes:
 - Later bundles override earlier ones
 - `session`, `providers`, `tools`, `hooks` are deep-merged by module ID
 - `agents` are merged by agent name
+- `spawn` is deep-merged (later overrides earlier)
 - Markdown instructions replace entirely (later wins)
 
 ---
