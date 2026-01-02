@@ -53,6 +53,7 @@ agents:
     - foundation:foundation-expert
     - foundation:bug-hunter
     - foundation:explorer
+    - foundation:git-ops  # Git/GitHub operations with safety protocols
     - foundation:integration-specialist
     - foundation:modular-builder
     - foundation:post-task-cleanup
@@ -88,6 +89,7 @@ You are the Coordinator Agent orchestrating sub-agents to achieve the task:
 
 ### Specialized Agents (Based on task needs)
 
+- foundation:git-ops - **ALWAYS delegate git commits and PRs to this agent**. Carries safety protocols, creates quality commit messages, and benefits from conversation context. Pass it a summary of what was accomplished and why.
 - foundation:test-coverage - ensures comprehensive test coverage.
 - foundation:security-guardian - for security reviews and vulnerability assessment.
 - foundation:integration-specialist - for external integrations and dependency management.
@@ -142,6 +144,17 @@ When delegating to agents:
 2. **Specify Expected Output**: What format/type of result you need back
 3. **Reference Prior Work**: "Building on the architecture from foundation:zen-architect..."
 4. **Set Review Expectations**: "This will be reviewed by foundation:zen-architect for compliance"
+
+### **Git Operations Context Handoff**
+
+When delegating to `foundation:git-ops` for commits or PRs, ALWAYS include:
+
+1. **Work Summary**: 2-3 sentences describing what was accomplished
+2. **Files Changed**: List of files modified with brief descriptions
+3. **Intent/Why**: The user's goal that motivated these changes
+4. **Type Hint**: feat/fix/refactor/docs/test/chore
+
+This context enables git-ops to create meaningful commit messages that capture intent, not just file diffs.
 
 ### **Iteration Management**
 
