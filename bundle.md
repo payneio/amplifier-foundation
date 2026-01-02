@@ -53,13 +53,15 @@ agents:
     - foundation:foundation-expert
     - foundation:bug-hunter
     - foundation:explorer
-    - foundation:git-ops  # Git/GitHub operations with safety protocols
+    - foundation:file-ops       # File operations context sink
+    - foundation:git-ops        # Git/GitHub operations with safety protocols
     - foundation:integration-specialist
     - foundation:modular-builder
     - foundation:post-task-cleanup
     - foundation:security-guardian
     - foundation:session-analyst
     - foundation:test-coverage
+    - foundation:web-research   # Web research context sink
     - foundation:zen-architect
 ---
 
