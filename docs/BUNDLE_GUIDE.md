@@ -710,12 +710,15 @@ Not all context needs to load at session start. Use **soft references** (text wi
 
 Every `@mention` loads content eagerly at session creation, consuming tokens immediately:
 
-```markdown
-# These ALL load at session start (~15,000 tokens)
-@foundation:docs/BUNDLE_GUIDE.md
-@amplifier:docs/MODULES.md
-@recipes:examples/code-review-recipe.yaml
 ```
+# These ALL load at session start (~15,000 tokens)
+# Syntax: @<bundle>:<path>
+foundation:docs/BUNDLE_GUIDE.md      # ~5,700 tokens
+amplifier:docs/MODULES.md            # ~4,600 tokens  
+recipes:examples/code-review.yaml    # ~5,000 tokens
+```
+
+*(Prepend `@` to each line above to see actual eager loading)*
 
 ### The Solution: Soft References
 
@@ -744,17 +747,17 @@ For heavy documentation, create specialized "context sink" agents that @mention 
 
 **Example**: Instead of @mentioning MODULES.md (~4,600 tokens) in the root bundle:
 
-```markdown
-# BAD: Heavy root context
-@amplifier:docs/MODULES.md
+```
+# BAD: Heavy root context (in bundle.md)
+amplifier:docs/MODULES.md   # <- @mention loads ~4,600 tokens every session
 ```
 
 Create an expert agent that owns that knowledge:
 
-```markdown
-# GOOD: In agents/ecosystem-expert.md
-@amplifier:docs/MODULES.md
-@amplifier:docs/REPOSITORY_RULES.md
+```
+# GOOD: In agents/ecosystem-expert.md (agent owns this knowledge)
+amplifier:docs/MODULES.md            # <- @mention here loads only when agent spawns
+amplifier:docs/REPOSITORY_RULES.md   # <- same - deferred loading
 ```
 
 The root bundle uses a soft reference and delegates:

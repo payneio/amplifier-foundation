@@ -179,7 +179,7 @@ Beyond bundle composition, **apps inject runtime configuration** via `settings.y
 - Tool configs (e.g., `allowed_write_paths` for filesystem)
 - Session-scoped overrides
 
-For the full composition chain (bundle → app → session), see `@foundation:docs/BUNDLE_GUIDE.md`.
+For the full composition chain (bundle → app → session), see `foundation:docs/BUNDLE_GUIDE.md`.
 
 ### Be Judicious with @mentions
 
