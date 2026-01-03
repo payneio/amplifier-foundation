@@ -529,6 +529,110 @@ class PreparedBundle:
     resolver: BundleModuleResolver
     bundle: Bundle
 
+    def _build_bundles_for_resolver(self, bundle: "Bundle") -> dict[str, "Bundle"]:
+        """Build bundle registry for mention resolution.
+
+        Maps each namespace to a bundle with the correct base_path for that namespace.
+        This allows @foundation:context/... to resolve relative to foundation's base_path.
+        """
+        from dataclasses import replace as dataclass_replace
+
+        bundles_for_resolver: dict[str, Bundle] = {}
+        namespaces = list(bundle.source_base_paths.keys()) if bundle.source_base_paths else []
+        if bundle.name and bundle.name not in namespaces:
+            namespaces.append(bundle.name)
+
+        for ns in namespaces:
+            if not ns:
+                continue
+            ns_base_path = bundle.source_base_paths.get(ns, bundle.base_path)
+            if ns_base_path:
+                bundles_for_resolver[ns] = dataclass_replace(bundle, base_path=ns_base_path)
+            else:
+                bundles_for_resolver[ns] = bundle
+
+        return bundles_for_resolver
+
+    def _create_system_prompt_factory(
+        self,
+        bundle: "Bundle",
+        session: Any,
+    ) -> "Callable[[], Awaitable[str]]":
+        """Create a factory that produces fresh system prompt content on each call.
+
+        The factory re-reads context files and re-processes @mentions each time,
+        enabling dynamic content like AGENTS.md to be picked up immediately when
+        modified during a session.
+
+        Args:
+            bundle: Bundle containing instruction, context files, and base paths.
+            session: Session for capability access (e.g., extended mention resolver).
+
+        Returns:
+            Async callable that returns the system prompt string.
+        """
+        from collections.abc import Awaitable, Callable
+        from dataclasses import replace as dataclass_replace
+
+        from amplifier_foundation.mentions import BaseMentionResolver
+        from amplifier_foundation.mentions import ContentDeduplicator
+        from amplifier_foundation.mentions import format_context_block
+        from amplifier_foundation.mentions import load_mentions
+
+        # Capture state for the closure
+        captured_bundle = bundle
+        captured_self = self
+
+        async def factory() -> str:
+            # Build combined instruction: main instruction + all context.include files
+            # Re-read files each time to pick up changes
+            instruction_parts: list[str] = []
+            if captured_bundle.instruction:
+                instruction_parts.append(captured_bundle.instruction)
+
+            # Load and append all context files (re-read each call)
+            for context_name, context_path in captured_bundle.context.items():
+                if context_path.exists():
+                    content = context_path.read_text()
+                    instruction_parts.append(f"# Context: {context_name}\n\n{content}")
+
+            combined_instruction = "\n\n---\n\n".join(instruction_parts)
+
+            # Build bundle registry for resolver (using helper)
+            bundles_for_resolver = captured_self._build_bundles_for_resolver(captured_bundle)
+
+            resolver = BaseMentionResolver(
+                bundles=bundles_for_resolver,
+                base_path=captured_bundle.base_path or Path.cwd(),
+            )
+
+            # Fresh deduplicator each call (files may have changed)
+            deduplicator = ContentDeduplicator()
+
+            # Resolve @mentions (re-loads files each call)
+            mention_results = await load_mentions(
+                combined_instruction,
+                resolver=resolver,
+                deduplicator=deduplicator,
+            )
+
+            # Build mention_to_path map for context block attribution
+            mention_to_path: dict[str, Path] = {}
+            for mr in mention_results:
+                if mr.resolved_path:
+                    mention_to_path[mr.mention] = mr.resolved_path
+
+            # Format loaded context as XML blocks
+            context_block = format_context_block(deduplicator, mention_to_path)
+
+            # Prepend context to instruction
+            if context_block:
+                return f"{context_block}\n\n---\n\n{combined_instruction}"
+            else:
+                return combined_instruction
+
+        return factory
+
     async def create_session(
         self,
         session_id: str | None = None,
@@ -581,88 +685,33 @@ class PreparedBundle:
         # Resolve any pending namespaced context references now that source_base_paths is available
         self.bundle.resolve_pending_context()
 
-        # Inject system instruction with resolved @mentions (if present)
-        # Also inject context.include files (accumulated from all composed bundles)
+        # Register system prompt factory for dynamic @mention reprocessing
+        # The factory is called on EVERY get_messages_for_request(), enabling:
+        # - AGENTS.md changes to be picked up immediately
+        # - Bundle instruction changes to take effect mid-session
+        # - All @mentioned files to be re-read fresh each turn
         if self.bundle.instruction or self.bundle.context or self.bundle._pending_context:
-            from dataclasses import replace as dataclass_replace
-
             from amplifier_foundation.mentions import BaseMentionResolver
             from amplifier_foundation.mentions import ContentDeduplicator
-            from amplifier_foundation.mentions import format_context_block
-            from amplifier_foundation.mentions import load_mentions
-
-            # Build combined instruction: main instruction + all context.include files
-            instruction_parts: list[str] = []
-            if self.bundle.instruction:
-                instruction_parts.append(self.bundle.instruction)
-
-            # Load and append all context files (these are auto-injected, not just @mention-resolvable)
-            for context_name, context_path in self.bundle.context.items():
-                if context_path.exists():
-                    content = context_path.read_text()
-                    # Add with attribution header
-                    instruction_parts.append(f"# Context: {context_name}\n\n{content}")
-
-            combined_instruction = "\n\n---\n\n".join(instruction_parts)
-
-            # Build bundle registry: each namespace maps to bundle with correct base_path
-            # This allows @foundation:context/... to resolve relative to foundation's base_path
-            bundles_for_resolver: dict[str, Bundle] = {}
-            namespaces = list(self.bundle.source_base_paths.keys()) if self.bundle.source_base_paths else []
-            if self.bundle.name and self.bundle.name not in namespaces:
-                namespaces.append(self.bundle.name)
-
-            for ns in namespaces:
-                if not ns:
-                    continue
-                # Use source_base_paths if available, otherwise fall back to bundle's base_path
-                ns_base_path = self.bundle.source_base_paths.get(ns, self.bundle.base_path)
-                if ns_base_path:
-                    # Create a copy of bundle with correct base_path for this namespace
-                    bundles_for_resolver[ns] = dataclass_replace(self.bundle, base_path=ns_base_path)
-                else:
-                    bundles_for_resolver[ns] = self.bundle
-
-            resolver = BaseMentionResolver(
-                bundles=bundles_for_resolver,
-                base_path=self.bundle.base_path or Path.cwd(),
-            )
-
-            # Deduplicator collects all unique files (including nested @mentions)
-            deduplicator = ContentDeduplicator()
 
             # Register resolver and deduplicator as capabilities for tools to use
             # (e.g., filesystem tool's read_file can resolve @mention paths)
-            session.coordinator.register_capability("mention_resolver", resolver)
-            session.coordinator.register_capability("mention_deduplicator", deduplicator)
-
-            # Resolve @mentions in the combined instruction (returns MentionResult list with content)
-            mention_results = await load_mentions(
-                combined_instruction,
-                resolver=resolver,
-                deduplicator=deduplicator,
+            # Note: These are created once for capability registration, but the factory
+            # creates fresh instances each call for accurate file re-reading
+            bundles_for_resolver = self._build_bundles_for_resolver(self.bundle)
+            initial_resolver = BaseMentionResolver(
+                bundles=bundles_for_resolver,
+                base_path=self.bundle.base_path or Path.cwd(),
             )
+            initial_deduplicator = ContentDeduplicator()
+            session.coordinator.register_capability("mention_resolver", initial_resolver)
+            session.coordinator.register_capability("mention_deduplicator", initial_deduplicator)
 
-            # Build mention_to_path map for context block attribution
-            mention_to_path: dict[str, Path] = {}
-            for mr in mention_results:
-                if mr.resolved_path:
-                    mention_to_path[mr.mention] = mr.resolved_path
-
-            # Format loaded context as XML blocks (prepended to instruction)
-            # @mentions stay in instruction as semantic references
-            context_block = format_context_block(deduplicator, mention_to_path)
-
-            # Prepend context to instruction (context first, then original instruction with @mentions)
-            if context_block:
-                final_instruction = f"{context_block}\n\n---\n\n{combined_instruction}"
-            else:
-                final_instruction = combined_instruction
-
-            # Add as system message
+            # Create and register the system prompt factory
+            factory = self._create_system_prompt_factory(self.bundle, session)
             context_manager = session.coordinator.get("context")
-            if context_manager and hasattr(context_manager, "add_message"):
-                await context_manager.add_message({"role": "system", "content": final_instruction})
+            if context_manager and hasattr(context_manager, "set_system_prompt_factory"):
+                await context_manager.set_system_prompt_factory(factory)
 
         return session
 
@@ -746,79 +795,14 @@ class PreparedBundle:
         await child_session.coordinator.mount("module-source-resolver", self.resolver)
         await child_session.initialize()
 
-        # Inject system instruction with resolved @mentions (if present)
-        # Also inject context.include files (accumulated from all composed bundles)
+        # Register system prompt factory for dynamic @mention reprocessing
+        # Note: For spawned sessions, we still want dynamic system prompts so that
+        # any @mentioned files are fresh (though spawn sessions are typically short-lived)
         if effective_bundle.instruction or effective_bundle.context:
-            from dataclasses import replace as dataclass_replace
-
-            from amplifier_foundation.mentions import BaseMentionResolver
-            from amplifier_foundation.mentions import ContentDeduplicator
-            from amplifier_foundation.mentions import format_context_block
-            from amplifier_foundation.mentions import load_mentions
-
-            # Build combined instruction: main instruction + all context.include files
-            instruction_parts: list[str] = []
-            if effective_bundle.instruction:
-                instruction_parts.append(effective_bundle.instruction)
-
-            # Load and append all context files (these are auto-injected, not just @mention-resolvable)
-            for context_name, context_path in effective_bundle.context.items():
-                if context_path.exists():
-                    content = context_path.read_text()
-                    # Add with attribution header
-                    instruction_parts.append(f"# Context: {context_name}\n\n{content}")
-
-            combined_instruction = "\n\n---\n\n".join(instruction_parts)
-
-            # Build bundle registry from source_base_paths (set during compose)
-            bundles_for_resolver: dict[str, Bundle] = {}
-            namespaces = list(effective_bundle.source_base_paths.keys()) if effective_bundle.source_base_paths else []
-            if effective_bundle.name and effective_bundle.name not in namespaces:
-                namespaces.append(effective_bundle.name)
-
-            for ns in namespaces:
-                if not ns:
-                    continue
-                ns_base_path = effective_bundle.source_base_paths.get(ns, effective_bundle.base_path)
-                if ns_base_path:
-                    bundles_for_resolver[ns] = dataclass_replace(effective_bundle, base_path=ns_base_path)
-                else:
-                    bundles_for_resolver[ns] = effective_bundle
-
-            resolver = BaseMentionResolver(
-                bundles=bundles_for_resolver,
-                base_path=effective_bundle.base_path or Path.cwd(),
-            )
-
-            # Create deduplicator to collect ALL loaded content (including nested)
-            deduplicator = ContentDeduplicator()
-
-            # Resolve @mentions in the combined instruction (also loads nested @mentions)
-            mention_results = await load_mentions(
-                combined_instruction,
-                resolver=resolver,
-                deduplicator=deduplicator,
-            )
-
-            # Build mention_to_path map for context block attribution
-            mention_to_path: dict[str, Path] = {}
-            for mr in mention_results:
-                if mr.resolved_path:
-                    mention_to_path[mr.mention] = mr.resolved_path
-
-            # Format loaded context as XML blocks (prepended to instruction)
-            # @mentions stay in instruction as semantic references
-            context_block = format_context_block(deduplicator, mention_to_path)
-
-            # Prepend context to instruction (context first, then original instruction with @mentions)
-            if context_block:
-                final_instruction = f"{context_block}\n\n---\n\n{combined_instruction}"
-            else:
-                final_instruction = combined_instruction
-
+            factory = self._create_system_prompt_factory(effective_bundle, child_session)
             context = child_session.coordinator.get("context")
-            if context and hasattr(context, "add_message"):
-                await context.add_message({"role": "system", "content": final_instruction})
+            if context and hasattr(context, "set_system_prompt_factory"):
+                await context.set_system_prompt_factory(factory)
 
         # Execute instruction and cleanup
         try:
