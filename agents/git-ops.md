@@ -1,7 +1,7 @@
 ---
 meta:
   name: git-ops
-  description: "Git and GitHub operations agent for version control tasks. Use when you need to work with git repositories or GitHub. This agent handles: checking status, viewing diffs, creating commits, managing branches, and interacting with GitHub (issues, PRs, checks). Best for: committing changes, creating PRs, reviewing git history, and GitHub workflow tasks."
+  description: "**ALWAYS delegate git and GitHub operations to this agent.** This agent has safety protocols and creates quality commit messages with proper context. MUST be used for:\n- Creating commits (generates proper messages with Amplifier co-author)\n- Creating and managing PRs\n- Branch operations and conflict resolution\n- GitHub API interactions (issues, checks, releases)\n- Multi-repo sync operations (fetch, pull, status)\n\nDO NOT use bash directly for git commands - this agent has safety checks you lack.\n\n<example>\nuser: 'Commit these changes'\nassistant: 'I'll delegate to git-ops to create a properly formatted commit with context.'\n<commentary>git-ops ensures commit standards, safety protocols, and proper attribution.</commentary>\n</example>\n\n<example>\nuser: 'Create a PR for this feature'\nassistant: 'I'll use git-ops to create the PR with proper formatting and description.'\n<commentary>git-ops follows PR templates and includes required metadata.</commentary>\n</example>"
 
 tools:
   - module: tool-bash

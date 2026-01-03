@@ -120,7 +120,7 @@ You have access to the **recipes** tool for multi-step AI agent orchestration. R
 - Schema: recipes:docs/RECIPE_SCHEMA.md
 - Best practices: recipes:docs/BEST_PRACTICES.md
 - Examples catalog: recipes:docs/EXAMPLES_CATALOG.md
-- Example recipes: @recipes:examples/simple-analysis-recipe.yaml, @recipes:examples/code-review-recipe.yaml, etc.
+- Example recipes: recipes:examples/simple-analysis-recipe.yaml, recipes:examples/code-review-recipe.yaml, recipes:examples/repo-activity-analysis.yaml
 
 ## Agent Orchestration Strategies
 

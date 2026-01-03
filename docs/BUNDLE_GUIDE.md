@@ -702,6 +702,79 @@ The namespace is the bundle name. Paths are relative to the bundle root.
 
 ---
 
+## Load-on-Demand Pattern (Soft References)
+
+Not all context needs to load at session start. Use **soft references** (text without `@`) to make content available without consuming tokens until needed.
+
+### The Problem
+
+Every `@mention` loads content eagerly at session creation, consuming tokens immediately:
+
+```markdown
+# These ALL load at session start (~15,000 tokens)
+@foundation:docs/BUNDLE_GUIDE.md
+@amplifier:docs/MODULES.md
+@recipes:examples/code-review-recipe.yaml
+```
+
+### The Solution: Soft References
+
+Reference files by path WITHOUT the `@` prefix. The AI can load them on-demand via `read_file`:
+
+```markdown
+**Documentation (load on demand):**
+- Schema: recipes:docs/RECIPE_SCHEMA.md
+- Examples: recipes:examples/code-review-recipe.yaml
+- Guide: foundation:docs/BUNDLE_GUIDE.md
+```
+
+The AI sees these references and can load them when actually needed.
+
+### When to Use Each Pattern
+
+| Pattern | Syntax | Loads | Use When |
+|---------|--------|-------|----------|
+| **@mention** | `@bundle:path` | Immediately | Content is ALWAYS needed |
+| **Soft reference** | `bundle:path` (no @) | On-demand | Content is SOMETIMES needed |
+| **Agent delegation** | Delegate to expert agent | When spawned | Content belongs to a specialist |
+
+### Best Practice: Context Sink Agents
+
+For heavy documentation, create specialized "context sink" agents that @mention the docs. The root session stays light; heavy context loads only when that agent is spawned.
+
+**Example**: Instead of @mentioning MODULES.md (~4,600 tokens) in the root bundle:
+
+```markdown
+# BAD: Heavy root context
+@amplifier:docs/MODULES.md
+```
+
+Create an expert agent that owns that knowledge:
+
+```markdown
+# GOOD: In agents/ecosystem-expert.md
+@amplifier:docs/MODULES.md
+@amplifier:docs/REPOSITORY_RULES.md
+```
+
+The root bundle uses a soft reference and delegates:
+
+```markdown
+# Root bundle.md
+For ecosystem questions, delegate to amplifier:amplifier-expert which has
+authoritative access to amplifier:docs/MODULES.md and related documentation.
+```
+
+### Key Insight
+
+**Every @mention is a token budget decision.** Ask yourself:
+- Is this content needed for EVERY conversation? -> @mention
+- Is this content needed for SOME conversations? -> Soft reference
+- Does this content belong to a specific domain? -> Move to specialist agent
+
+
+---
+
 ## Loading a Bundle
 
 ```bash

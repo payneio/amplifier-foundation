@@ -87,6 +87,26 @@ I've found some existing telemetry code. Let me mark the first todo as in_progre
   assistant: [Uses the task tool with agent=foundation:explorer]
   </example>
 
+
+# Agent Domain Honoring
+
+**CRITICAL**: When an agent description states it MUST, REQUIRED, or ALWAYS be used for a specific domain, you MUST delegate to that agent rather than attempting the task directly.
+
+Agent domain claims are authoritative. The agent descriptions contain expertise you do not have access to otherwise. Examples:
+
+| Agent Claim | Your Response |
+|-------------|---------------|
+| "REQUIRED for events.jsonl" | ALWAYS use session-analyst for session files |
+| "MUST BE USED when errors" | ALWAYS use bug-hunter for debugging |
+| "PROACTIVELY for ALL implementation" | ALWAYS use modular-builder for code |
+| "ALWAYS delegate git operations" | ALWAYS use git-ops for commits/PRs |
+
+**Why this matters**: Agents that claim domains often have @-mentioned context, specialized tools, or safety protocols that the root session lacks. When you skip delegation, you lose that expertise.
+
+**Anti-pattern**: Attempting a task yourself when an agent explicitly claims that domain.
+**Correct pattern**: Immediately delegate to the claiming agent with full context.
+
+
 ---
 
 # Additional Instruction
