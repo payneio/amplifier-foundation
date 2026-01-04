@@ -323,7 +323,7 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> dict[
         progress_bar_width: int (default: 24)
         max_width: int (default: 60)
         show_border: bool (default: True)
-        title: str (default: "Tasks")
+        title: str (default: "Todo")
     """
     config = config or {}
     
@@ -334,7 +334,7 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> dict[
         progress_bar_width=config.get("progress_bar_width", 24),
         max_width=config.get("max_width", 60),
         show_border=config.get("show_border", True),
-        title=config.get("title", "Tasks"),
+        title=config.get("title", "Todo"),
     )
     
     hooks = TodoDisplayHooks(display_config)
