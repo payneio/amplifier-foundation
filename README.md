@@ -107,7 +107,7 @@ This repo also contains reference bundle content for common configurations:
 | Path | Content |
 |------|---------|
 | `bundle.md` | **Main foundation bundle** - provider-agnostic base with streaming, tools, behaviors |
-| `providers/` | Provider configurations (anthropic, openai, azure, ollama) |
+| `providers/` | Provider configurations (anthropic-sonnet, anthropic-opus, openai-gpt, openai-gpt-5, openai-gpt-codex) |
 | `agents/` | Reusable agent definitions |
 | `behaviors/` | Behavioral configurations (logging, redaction, status, etc.) |
 | `context/` | Shared context files |
@@ -119,10 +119,13 @@ This repo also contains reference bundle content for common configurations:
 
 | Example | Description |
 |---------|-------------|
-| `examples/01_load_and_inspect.py` | Loading bundles from various sources |
-| `examples/02_composition.py` | Bundle composition and merge rules |
-| `examples/03_sources_and_registry.py` | Git URLs and BundleRegistry |
-| `examples/04_full_workflow/` | Complete: prepare → create_session → execute |
+| `examples/01_hello_world.py` | Minimal working example |
+| `examples/04_load_and_inspect.py` | Loading bundles from various sources |
+| `examples/05_composition.py` | Bundle composition and merge rules |
+| `examples/06_sources_and_registry.py` | Git URLs and BundleRegistry |
+| `examples/07_full_workflow.py` | Complete: prepare → create_session → execute |
+
+See [`examples/README.md`](examples/README.md) for the full catalog of 20+ examples.
 
 ## Documentation
 
