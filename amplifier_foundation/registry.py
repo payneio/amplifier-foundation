@@ -192,8 +192,9 @@ class BundleRegistry:
     def unregister(self, name: str) -> bool:
         """Remove a bundle from the registry.
 
-        Removes the bundle from the in-memory registry and persists the change
-        to disk. This does not delete cached files.
+        Removes the bundle from the in-memory registry.
+        Does NOT persist automatically - call save() to persist.
+        This does not delete cached files.
 
         Args:
             name: Bundle name to remove.
@@ -204,8 +205,23 @@ class BundleRegistry:
         if name not in self._registry:
             return False
 
+        state = self._registry[name]
+
+        # Clean up included_by refs in bundles we include
+        if state.includes:
+            for child_name in state.includes:
+                child = self._registry.get(child_name)
+                if child and child.included_by:
+                    child.included_by = [n for n in child.included_by if n != name]
+
+        # Clean up includes refs in bundles that include us
+        if state.included_by:
+            for parent_name in state.included_by:
+                parent = self._registry.get(parent_name)
+                if parent and parent.includes:
+                    parent.includes = [n for n in parent.includes if n != name]
+
         del self._registry[name]
-        self.save()
         logger.debug(f"Unregistered bundle: {name}")
         return True
 
