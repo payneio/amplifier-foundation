@@ -19,9 +19,7 @@ includes:
   - bundle: git+https://github.com/microsoft/amplifier-bundle-design-intelligence@main#subdirectory=behaviors/design-intelligence.yaml
   - bundle: git+https://github.com/microsoft/amplifier-bundle-lsp-python@main#subdirectory=behaviors/python-lsp.yaml
   - bundle: git+https://github.com/microsoft/amplifier-module-tool-skills@main#subdirectory=behaviors/skills.yaml
-  # Notifications
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-notify@main#subdirectory=behaviors/desktop-notifications.yaml
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-notify@main#subdirectory=behaviors/push-notifications.yaml
+
 
 session:
   orchestrator:
