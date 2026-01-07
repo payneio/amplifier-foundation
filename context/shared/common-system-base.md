@@ -134,4 +134,8 @@ For detailed patterns, delegate to `foundation:session-analyst` agent or see `fo
 
 @foundation:context/shared/common-agent-base.md
 
+@foundation:context/KERNEL_PHILOSOPHY.md
+
+@foundation:context/shared/AWARENESS_INDEX.md
+
 ---
