@@ -723,6 +723,7 @@ class PreparedBundle:
         compose: bool = True,
         parent_session: Any = None,
         session_id: str | None = None,
+        orchestrator_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Spawn a sub-session with a child bundle.
 
@@ -743,6 +744,8 @@ class PreparedBundle:
             compose: Whether to compose child with parent bundle (default True).
             parent_session: Parent session for lineage tracking and UX inheritance.
             session_id: Optional session ID for resuming existing session.
+            orchestrator_config: Optional orchestrator config to override/merge into
+                the spawned session's orchestrator settings (e.g., min_delay_between_calls_ms).
 
         Returns:
             Dict with "output" (response) and "session_id".
@@ -776,6 +779,16 @@ class PreparedBundle:
 
         # Get mount plan and create session
         child_mount_plan = effective_bundle.to_mount_plan()
+
+        # Merge orchestrator config if provided (recipe-level override)
+        if orchestrator_config:
+            # Ensure orchestrator section exists
+            if "orchestrator" not in child_mount_plan:
+                child_mount_plan["orchestrator"] = {}
+            if "config" not in child_mount_plan["orchestrator"]:
+                child_mount_plan["orchestrator"]["config"] = {}
+            # Merge recipe config into mount plan (recipe takes precedence)
+            child_mount_plan["orchestrator"]["config"].update(orchestrator_config)
 
         from amplifier_core import AmplifierSession
 
