@@ -226,6 +226,20 @@ class Bundle:
         # like ./modules/foo resolve relative to the bundle, not cwd
         activator = ModuleActivator(install_deps=install_deps, base_path=self.base_path)
 
+        # CRITICAL: Install bundle packages BEFORE activating modules
+        # Modules may import from their parent bundle's package (e.g., tool-shadow
+        # imports from amplifier_bundle_shadow). These packages must be installed
+        # before modules can be activated.
+        if install_deps:
+            # Install this bundle's package (if it has pyproject.toml)
+            if self.base_path:
+                await activator.activate_bundle_package(self.base_path)
+
+            # Install packages from all included bundles (from source_base_paths)
+            for namespace, bundle_path in self.source_base_paths.items():
+                if bundle_path and bundle_path != self.base_path:
+                    await activator.activate_bundle_package(bundle_path)
+
         # Collect all modules that need activation
         modules_to_activate = []
 

@@ -111,6 +111,36 @@ class ModuleActivator:
 
         return results
 
+    async def activate_bundle_package(self, bundle_path: Path) -> None:
+        """Install a bundle's own Python package to enable internal imports.
+
+        When a bundle contains both a Python package (pyproject.toml at root) and
+        modules that import from that package, we need to install the bundle's
+        package BEFORE activating modules. This enables patterns like:
+
+            # In modules/tool-shadow/__init__.py
+            from amplifier_bundle_shadow import ShadowManager
+
+        where amplifier_bundle_shadow is the bundle's own package.
+
+        Args:
+            bundle_path: Path to bundle root directory containing pyproject.toml.
+
+        Note:
+            This is a no-op if the bundle has no pyproject.toml.
+            Must be called BEFORE activate_all() for modules that need it.
+        """
+        if not bundle_path or not bundle_path.exists():
+            return
+
+        pyproject = bundle_path / "pyproject.toml"
+        if not pyproject.exists():
+            logger.debug(f"No pyproject.toml at {bundle_path}, skipping bundle package install")
+            return
+
+        logger.debug(f"Installing bundle package from {bundle_path}")
+        await self._install_dependencies(bundle_path)
+
     async def _install_dependencies(self, module_path: Path) -> None:
         """Install Python dependencies for a module.
 
