@@ -124,7 +124,14 @@ If no search criteria provided, ask for at least one constraint.
 Amplifier stores sessions at: `~/.amplifier/projects/PROJECT_NAME/sessions/SESSION_ID/`
 
 - `metadata.json`: Contains session_id, created (ISO timestamp), profile, model, turn_count
-- `transcript.jsonl`: JSONL format, each line is `{"role": "user"|"assistant", "content": "..."}`
+- `transcript.jsonl`: JSONL format with message roles:
+  - `user`: Prompts (human in root sessions, caller agent in sub-sessions)
+  - `assistant`: LLM responses (may include `tool_calls` array)
+  - `tool`: Tool execution results (linked by `tool_call_id`)
+  
+  **Attribution rule**: Check `parent_id` in events.jsonl. If present, this is a 
+  sub-session and "user" = the parent session's assistant. To find the human, 
+  trace up the parent chain until you reach a session with no parent_id.
 - `events.jsonl`: Full event log - **DANGER: lines can be 100k+ tokens**
 
 ## Operating Principles

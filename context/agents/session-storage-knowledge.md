@@ -105,6 +105,19 @@ Each line is a JSON object:
 | `task:agent_spawned` | Medium | Most fields safe |
 | `task:completed` | Medium | Most fields safe |
 
+### Correlating Parent-Child Sessions
+
+```bash
+# Check if session is root or sub-session
+head -1 events.jsonl | jq -r '.parent_id // "root"'
+
+# Find delegation events (when this session spawned children)
+jq -c 'select(.event == "task:agent_spawned") | {ts, agent: .data.agent}' events.jsonl
+```
+
+**Attribution rule**: `parent_id` present = sub-session = "user" is the calling agent.
+To find the human user, trace parent_id chain until you reach a root session (no parent_id).
+
 ### Three-Level Logging System
 
 Providers emit events at configurable verbosity:
