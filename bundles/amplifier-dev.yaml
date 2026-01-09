@@ -8,5 +8,7 @@ includes:
   - bundle: foundation
   # Shadow environments for isolated testing
   - bundle: git+https://github.com/microsoft/amplifier-bundle-shadow@main
+  # Python development tools (quality checks, LSP, expert agent)
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-python-dev@main
   # Amplifier dev behavior (agents + context)
   - bundle: git+https://github.com/microsoft/amplifier-foundation@main#subdirectory=behaviors/amplifier-dev.yaml
