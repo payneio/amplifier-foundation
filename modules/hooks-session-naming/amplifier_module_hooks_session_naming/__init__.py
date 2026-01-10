@@ -105,29 +105,30 @@ class SessionNamingHook:
         before the session ends. This adds a few seconds to turns where naming
         happens, but is more reliable than background tasks.
         """
-        logger.info(f"[session-naming] Event handler called: event={event}, data_keys={list(data.keys())}")
+        # DEBUG: Emit to events.jsonl so we can trace execution
+        await self.coordinator.hooks.emit("session-naming:debug", {
+            "stage": "handler_called",
+            "event": event,
+            "data_keys": list(data.keys()),
+        })
         
         session_id = data.get("session_id")
         if not session_id:
-            logger.warning(f"[session-naming] No session_id in data, skipping")
+            await self.coordinator.hooks.emit("session-naming:debug", {
+                "stage": "no_session_id",
+                "message": "session_id not in data, skipping",
+            })
             return HookResult(action="continue")
-
-        logger.info(f"[session-naming] Processing session_id={session_id[:8]}...")
 
         # Get session directory from coordinator's session store path
         session_dir = self._get_session_dir(session_id)
         if not session_dir or not session_dir.exists():
-            logger.warning(f"[session-naming] Session dir not found for {session_id[:8]}")
             return HookResult(action="continue")
-
-        logger.info(f"[session-naming] Found session_dir={session_dir}")
 
         # Load current metadata
         metadata = self._load_metadata(session_dir)
         turn_count = metadata.get("turn_count", 0)
         has_name = metadata.get("name") is not None
-
-        logger.info(f"[session-naming] turn_count={turn_count}, has_name={has_name}, trigger_turn={self.config.initial_trigger_turn}")
 
         # Initial naming: turn >= initial_trigger and no name yet
         if turn_count >= self.config.initial_trigger_turn and not has_name:
@@ -469,14 +470,22 @@ async def mount(
 
     # Register for prompt completion events (fires after each turn)
     # Use low priority (high number) so we run after other hooks
-    logger.info(f"[session-naming] Registering for prompt:complete event")
     coordinator.hooks.register(
         "prompt:complete",
         hook.on_orchestrator_complete,
         priority=100,
         name="session-naming",
     )
-    logger.info(f"[session-naming] Hook registered successfully")
+    
+    # DEBUG: Emit event to confirm hook was mounted (shows in events.jsonl)
+    import asyncio
+    async def emit_mount_debug():
+        await coordinator.hooks.emit("session-naming:debug", {
+            "stage": "mount",
+            "message": "Hook registered for prompt:complete",
+            "priority": 100,
+        })
+    asyncio.create_task(emit_mount_debug())
 
     return {
         "name": "hooks-session-naming",
