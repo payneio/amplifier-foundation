@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SessionNamingConfig:
     """Configuration for session naming."""
+
     initial_trigger_turn: int = 2
     update_interval_turns: int = 5
     max_name_length: int = 50
@@ -94,10 +95,16 @@ class SessionNamingHook:
         self.coordinator = coordinator
         self.config = config
         self._defer_counts: dict[str, int] = {}
-        self._pending_tasks: dict[str, asyncio.Task] = {}
 
-    async def on_orchestrator_complete(self, event: str, data: dict[str, Any]) -> HookResult:
-        """Handle orchestrator completion - trigger naming if appropriate."""
+    async def on_orchestrator_complete(
+        self, event: str, data: dict[str, Any]
+    ) -> HookResult:
+        """Handle orchestrator completion - trigger naming if appropriate.
+
+        Naming runs synchronously (awaits the LLM call) to ensure it completes
+        before the session ends. This adds a few seconds to turns where naming
+        happens, but is more reliable than background tasks.
+        """
         session_id = data.get("session_id")
         if not session_id:
             return HookResult(action="continue")
@@ -112,64 +119,33 @@ class SessionNamingHook:
         turn_count = metadata.get("turn_count", 0)
         has_name = metadata.get("name") is not None
 
-        # Cancel any pending task for this session (new turn supersedes)
-        if session_id in self._pending_tasks:
-            task = self._pending_tasks.pop(session_id)
-            if not task.done():
-                task.cancel()
-
         # Initial naming: turn >= initial_trigger and no name yet
         if turn_count >= self.config.initial_trigger_turn and not has_name:
             defer_count = self._defer_counts.get(session_id, 0)
             if defer_count < self.config.max_retries:
-                task = asyncio.create_task(
-                    self._generate_name(session_id, session_dir, is_update=False)
-                )
-                self._pending_tasks[session_id] = task
+                # Run naming synchronously to ensure completion
+                await self._generate_name(session_id, session_dir, is_update=False)
 
         # Description update: has name and at update interval
-        elif has_name and turn_count > 0 and turn_count % self.config.update_interval_turns == 0:
-            task = asyncio.create_task(
-                self._generate_name(session_id, session_dir, is_update=True)
-            )
-            self._pending_tasks[session_id] = task
-
-        # Always return immediately - never block
-        return HookResult(action="continue")
-
-    async def on_session_end(self, event: str, data: dict[str, Any]) -> HookResult:
-        """Handle session end - wait for any pending naming tasks to complete."""
-        session_id = data.get("session_id")
-        if not session_id:
-            return HookResult(action="continue")
-
-        # Wait for any pending naming task for this session
-        if session_id in self._pending_tasks:
-            task = self._pending_tasks.pop(session_id)
-            if not task.done():
-                try:
-                    # Wait for the task with a timeout (don't block forever)
-                    await asyncio.wait_for(task, timeout=30.0)
-                    logger.debug(f"Naming task completed for session {session_id[:8]}")
-                except asyncio.TimeoutError:
-                    logger.warning(f"Naming task timed out for session {session_id[:8]}")
-                    task.cancel()
-                except asyncio.CancelledError:
-                    logger.debug(f"Naming task was cancelled for session {session_id[:8]}")
-                except Exception as e:
-                    logger.error(f"Error waiting for naming task: {e}")
+        elif (
+            has_name
+            and turn_count > 0
+            and turn_count % self.config.update_interval_turns == 0
+        ):
+            # Run description update synchronously
+            await self._generate_name(session_id, session_dir, is_update=True)
 
         return HookResult(action="continue")
 
     def _get_session_dir(self, session_id: str) -> Path | None:
         """Get session directory path."""
         # Try to get from coordinator's session info
-        if hasattr(self.coordinator, 'session_dir'):
+        if hasattr(self.coordinator, "session_dir"):
             return Path(self.coordinator.session_dir)
-        
+
         # Try standard Amplifier session paths
         home = Path.home()
-        
+
         # Check in projects structure
         projects_dir = home / ".amplifier" / "projects"
         if projects_dir.exists():
@@ -178,7 +154,7 @@ class SessionNamingHook:
                     session_path = project_dir / "sessions" / session_id
                     if session_path.exists():
                         return session_path
-        
+
         # Check legacy sessions location
         legacy_path = home / ".amplifier" / "sessions" / session_id
         if legacy_path.exists():
@@ -208,7 +184,9 @@ class SessionNamingHook:
             if temp_path.exists():
                 temp_path.unlink()
 
-    async def _generate_name(self, session_id: str, session_dir: Path, is_update: bool) -> None:
+    async def _generate_name(
+        self, session_id: str, session_dir: Path, is_update: bool
+    ) -> None:
         """Generate or update session name/description in background."""
         try:
             # Load current metadata
@@ -227,9 +205,7 @@ class SessionNamingHook:
             # Build prompt
             if is_update:
                 prompt = DESCRIPTION_UPDATE_PROMPT.format(
-                    name=current_name,
-                    description=current_description,
-                    context=context
+                    name=current_name, description=current_description, context=context
                 )
             else:
                 prompt = INITIAL_NAMING_PROMPT.format(context=context)
@@ -249,20 +225,26 @@ class SessionNamingHook:
 
             if action == "defer":
                 # Increment defer count for retries
-                self._defer_counts[session_id] = self._defer_counts.get(session_id, 0) + 1
-                logger.debug(f"Session {session_id[:8]} deferred naming (attempt {self._defer_counts[session_id]})")
+                self._defer_counts[session_id] = (
+                    self._defer_counts.get(session_id, 0) + 1
+                )
+                logger.debug(
+                    f"Session {session_id[:8]} deferred naming (attempt {self._defer_counts[session_id]})"
+                )
                 return
 
             if action == "set":
                 # Update metadata
                 if not is_update and result.get("name"):
-                    name = result["name"][:self.config.max_name_length]
+                    name = result["name"][: self.config.max_name_length]
                     metadata["name"] = name
                     metadata["name_generated_at"] = now
                     logger.info(f"Session {session_id[:8]} named: {name}")
 
                 if result.get("description"):
-                    description = result["description"][:self.config.max_description_length]
+                    description = result["description"][
+                        : self.config.max_description_length
+                    ]
                     metadata["description"] = description
                     metadata["description_updated_at"] = now
                     if is_update:
@@ -281,12 +263,15 @@ class SessionNamingHook:
             logger.error(f"Error generating name for session {session_id[:8]}: {e}")
 
     async def _get_conversation_context(
-        self, session_dir: Path, current_name: str | None, current_description: str | None
+        self,
+        session_dir: Path,
+        current_name: str | None,
+        current_description: str | None,
     ) -> str | None:
         """Extract conversation context for naming prompt."""
         # Try to get messages from context manager
         messages = await self._get_messages_from_context()
-        
+
         # Fallback: read from transcript
         if not messages:
             messages = self._read_transcript(session_dir)
@@ -301,7 +286,7 @@ class SessionNamingHook:
         try:
             # Access context manager through coordinator
             context = self.coordinator.mount_points.get("context")
-            if context and hasattr(context, 'get_messages'):
+            if context and hasattr(context, "get_messages"):
                 messages = await context.get_messages()
                 if messages:
                     return messages
@@ -332,7 +317,10 @@ class SessionNamingHook:
         return messages
 
     def _extract_naming_context(
-        self, messages: list[dict], current_name: str | None, current_description: str | None
+        self,
+        messages: list[dict],
+        current_name: str | None,
+        current_description: str | None,
     ) -> str:
         """Extract representative context using bookend + sampling."""
         n = len(messages)
@@ -350,7 +338,7 @@ class SessionNamingHook:
 
         # First 3 turns (original intent)
         parts.append("=== Opening ===")
-        for msg in messages[:min(3, n)]:
+        for msg in messages[: min(3, n)]:
             content = self._truncate_content(msg.get("content", ""), 400)
             parts.append(f"[{msg.get('role', 'unknown')}]: {content}")
 
@@ -369,7 +357,7 @@ class SessionNamingHook:
         if n > 3:
             parts.append("")
             parts.append("=== Recent ===")
-            for msg in messages[-min(5, n - 3):]:
+            for msg in messages[-min(5, n - 3) :]:
                 content = self._truncate_content(msg.get("content", ""), 400)
                 parts.append(f"[{msg.get('role', 'unknown')}]: {content}")
 
@@ -383,11 +371,11 @@ class SessionNamingHook:
         """Truncate content, preferring to break at word boundaries."""
         if not content or len(content) <= max_len:
             return content or ""
-        
+
         # Handle list content (tool results, etc.)
         if isinstance(content, list):
             content = str(content)
-        
+
         truncated = content[:max_len]
         # Try to break at a word boundary
         last_space = truncated.rfind(" ")
@@ -400,16 +388,16 @@ class SessionNamingHook:
         try:
             # Get the priority provider from coordinator
             provider = None
-            
+
             # Try mount_points first
-            if hasattr(self.coordinator, 'mount_points'):
+            if hasattr(self.coordinator, "mount_points"):
                 providers = self.coordinator.mount_points.get("providers", {})
                 if providers:
                     # Get first/priority provider
                     provider = next(iter(providers.values()), None)
-            
+
             # Try get_provider method
-            if not provider and hasattr(self.coordinator, 'get_provider'):
+            if not provider and hasattr(self.coordinator, "get_provider"):
                 provider = self.coordinator.get_provider()
 
             if not provider:
@@ -419,14 +407,10 @@ class SessionNamingHook:
             # Make the request
             from amplifier_core import ChatRequest, ChatMessage
 
-            request = ChatRequest(
-                messages=[
-                    ChatMessage(role="user", content=prompt)
-                ]
-            )
+            request = ChatRequest(messages=[ChatMessage(role="user", content=prompt)])
 
             response = await provider.complete(request)
-            
+
             if response and response.content:
                 return response.content
 
@@ -439,7 +423,7 @@ class SessionNamingHook:
         """Parse JSON response from LLM."""
         try:
             # Try to extract JSON from response (may have markdown wrapper)
-            json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+            json_match = re.search(r"\{[^{}]*\}", response, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
             return json.loads(response)
@@ -449,7 +433,9 @@ class SessionNamingHook:
             return None
 
 
-async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> dict[str, Any]:
+async def mount(
+    coordinator: Any, config: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Mount the session naming hook module.
 
     Config options:
@@ -477,15 +463,7 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> dict[
         "prompt:complete",
         hook.on_orchestrator_complete,
         priority=100,
-        name="session-naming"
-    )
-
-    # Register for session end to wait for pending naming tasks
-    coordinator.hooks.register(
-        "session:end",
-        hook.on_session_end,
-        priority=0,  # Run early to ensure we wait before other cleanup
-        name="session-naming-cleanup"
+        name="session-naming",
     )
 
     return {
