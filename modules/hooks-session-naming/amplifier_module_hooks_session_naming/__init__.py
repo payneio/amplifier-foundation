@@ -405,9 +405,9 @@ class SessionNamingHook:
                 return None
 
             # Make the request
-            from amplifier_core import ChatRequest, ChatMessage
+            from amplifier_core import ChatRequest, Message
 
-            request = ChatRequest(messages=[ChatMessage(role="user", content=prompt)])
+            request = ChatRequest(messages=[Message(role="user", content=prompt)])
 
             response = await provider.complete(request)
 
