@@ -35,7 +35,7 @@ includes:
   # External bundles
   - bundle: git+https://github.com/microsoft/amplifier-bundle-recipes@main#subdirectory=behaviors/recipes.yaml
   - bundle: git+https://github.com/microsoft/amplifier-bundle-design-intelligence@main#subdirectory=behaviors/design-intelligence.yaml
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-lsp-python@main#subdirectory=behaviors/python-lsp.yaml
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-python-dev@main
   - bundle: git+https://github.com/microsoft/amplifier-module-tool-skills@main#subdirectory=behaviors/skills.yaml
 
 
