@@ -106,18 +106,24 @@ class SessionNamingHook:
         happens, but is more reliable than background tasks.
         """
         # DEBUG: Emit to events.jsonl so we can trace execution
-        await self.coordinator.hooks.emit("session-naming:debug", {
-            "stage": "handler_called",
-            "event": event,
-            "data_keys": list(data.keys()),
-        })
-        
+        await self.coordinator.hooks.emit(
+            "session-naming:debug",
+            {
+                "stage": "handler_called",
+                "event": event,
+                "data_keys": list(data.keys()),
+            },
+        )
+
         session_id = data.get("session_id")
         if not session_id:
-            await self.coordinator.hooks.emit("session-naming:debug", {
-                "stage": "no_session_id",
-                "message": "session_id not in data, skipping",
-            })
+            await self.coordinator.hooks.emit(
+                "session-naming:debug",
+                {
+                    "stage": "no_session_id",
+                    "message": "session_id not in data, skipping",
+                },
+            )
             return HookResult(action="continue")
 
         # Get session directory from coordinator's session store path
@@ -127,11 +133,14 @@ class SessionNamingHook:
 
         # Load current metadata
         metadata = self._load_metadata(session_dir)
-        turn_count = metadata.get("turn_count", 0)
+        # Note: prompt:complete fires BEFORE metadata.json is updated with new turn_count
+        # So we add 1 to get the actual current turn number
+        stored_turn_count = metadata.get("turn_count", 0)
+        current_turn = stored_turn_count + 1
         has_name = metadata.get("name") is not None
 
         # Initial naming: turn >= initial_trigger and no name yet
-        if turn_count >= self.config.initial_trigger_turn and not has_name:
+        if current_turn >= self.config.initial_trigger_turn and not has_name:
             defer_count = self._defer_counts.get(session_id, 0)
             if defer_count < self.config.max_retries:
                 # Run naming synchronously to ensure completion
@@ -140,8 +149,8 @@ class SessionNamingHook:
         # Description update: has name and at update interval
         elif (
             has_name
-            and turn_count > 0
-            and turn_count % self.config.update_interval_turns == 0
+            and current_turn > 0
+            and current_turn % self.config.update_interval_turns == 0
         ):
             # Run description update synchronously
             await self._generate_name(session_id, session_dir, is_update=True)
@@ -476,15 +485,20 @@ async def mount(
         priority=100,
         name="session-naming",
     )
-    
+
     # DEBUG: Emit event to confirm hook was mounted (shows in events.jsonl)
     import asyncio
+
     async def emit_mount_debug():
-        await coordinator.hooks.emit("session-naming:debug", {
-            "stage": "mount",
-            "message": "Hook registered for prompt:complete",
-            "priority": 100,
-        })
+        await coordinator.hooks.emit(
+            "session-naming:debug",
+            {
+                "stage": "mount",
+                "message": "Hook registered for prompt:complete",
+                "priority": 100,
+            },
+        )
+
     asyncio.create_task(emit_mount_debug())
 
     return {
