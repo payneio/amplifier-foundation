@@ -486,21 +486,6 @@ async def mount(
         name="session-naming",
     )
 
-    # DEBUG: Emit event to confirm hook was mounted (shows in events.jsonl)
-    import asyncio
-
-    async def emit_mount_debug():
-        await coordinator.hooks.emit(
-            "session-naming:debug",
-            {
-                "stage": "mount",
-                "message": "Hook registered for prompt:complete",
-                "priority": 100,
-            },
-        )
-
-    asyncio.create_task(emit_mount_debug())
-
     return {
         "name": "hooks-session-naming",
         "version": "0.1.0",
