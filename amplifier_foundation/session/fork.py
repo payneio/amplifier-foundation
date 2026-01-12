@@ -171,6 +171,8 @@ def fork_session(
                 transcript_path,
                 turn,
                 new_session_dir / "events.jsonl",
+                new_session_id=session_id,
+                parent_session_id=parent_id,
             )
         except Exception:
             # Events slicing is best-effort - don't fail the fork

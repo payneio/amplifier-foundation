@@ -21,6 +21,8 @@ def slice_events_to_timestamp(
     events_path: Path,
     cutoff_timestamp: str,
     output_path: Path,
+    new_session_id: str | None = None,
+    parent_session_id: str | None = None,
 ) -> int:
     """Slice events.jsonl to include only events up to a timestamp.
 
@@ -31,6 +33,10 @@ def slice_events_to_timestamp(
         events_path: Path to source events.jsonl file.
         cutoff_timestamp: ISO format timestamp. Events with ts <= this are included.
         output_path: Path to write sliced events.
+        new_session_id: If provided, rewrite session_id in events to this value.
+            Also adds parent_session_id field for lineage tracking.
+        parent_session_id: Original session ID to store as parent reference.
+            If not provided but new_session_id is, uses the original session_id.
 
     Returns:
         Number of events written.
@@ -58,11 +64,31 @@ def slice_events_to_timestamp(
                     if event_ts:
                         event_dt = _parse_timestamp(event_ts)
                         if event_dt <= cutoff_dt:
-                            outfile.write(line + "\n")
+                            # Rewrite session_id if forking to new session
+                            if new_session_id:
+                                original_session_id = event.get("session_id")
+                                event["session_id"] = new_session_id
+                                # Track lineage - store original as parent
+                                if original_session_id:
+                                    event["parent_session_id"] = (
+                                        parent_session_id or original_session_id
+                                    )
+                                outfile.write(json.dumps(event, ensure_ascii=False) + "\n")
+                            else:
+                                outfile.write(line + "\n")
                             count += 1
                     else:
                         # Events without timestamp are included (shouldn't happen)
-                        outfile.write(line + "\n")
+                        if new_session_id:
+                            original_session_id = event.get("session_id")
+                            event["session_id"] = new_session_id
+                            if original_session_id:
+                                event["parent_session_id"] = (
+                                    parent_session_id or original_session_id
+                                )
+                            outfile.write(json.dumps(event, ensure_ascii=False) + "\n")
+                        else:
+                            outfile.write(line + "\n")
                         count += 1
 
                 except json.JSONDecodeError:
@@ -129,18 +155,23 @@ def slice_events_for_fork(
     transcript_path: Path,
     turn: int,
     output_path: Path,
+    new_session_id: str | None = None,
+    parent_session_id: str | None = None,
 ) -> int:
     """Slice events.jsonl for a fork at a specific turn.
 
     This is a convenience function that:
     1. Finds the last timestamp for the target turn
     2. Slices events to that timestamp
+    3. Optionally rewrites session_id for proper lineage tracking
 
     Args:
         events_path: Path to source events.jsonl file.
         transcript_path: Path to transcript.jsonl file.
         turn: Turn number to fork at (1-indexed).
         output_path: Path to write sliced events.
+        new_session_id: If provided, rewrite session_id in events to this value.
+        parent_session_id: Original session ID for lineage tracking.
 
     Returns:
         Number of events written.
@@ -158,7 +189,13 @@ def slice_events_for_fork(
         output_path.write_text("")
         return 0
 
-    return slice_events_to_timestamp(events_path, cutoff_ts, output_path)
+    return slice_events_to_timestamp(
+        events_path,
+        cutoff_ts,
+        output_path,
+        new_session_id=new_session_id,
+        parent_session_id=parent_session_id,
+    )
 
 
 def count_events(events_path: Path) -> int:
