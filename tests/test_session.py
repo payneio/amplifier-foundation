@@ -117,7 +117,7 @@ def sample_session(tmp_path):
     metadata = {
         "session_id": "parent_session_123",
         "profile": "bundle:foundation",
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-sonnet-4-5",
         "created": "2026-01-05T10:00:00Z",
         "turn_count": 3,
     }
@@ -354,7 +354,7 @@ class TestForkSession:
 
         metadata = json.loads((result.session_dir / "metadata.json").read_text())
         assert metadata["profile"] == "bundle:foundation"
-        assert metadata["model"] == "claude-sonnet-4-20250514"
+        assert metadata["model"] == "claude-sonnet-4-5"
 
     def test_fork_with_custom_id(self, sample_session):
         result = fork_session(sample_session, turn=1, new_session_id="my-custom-fork")

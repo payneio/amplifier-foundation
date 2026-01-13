@@ -10,7 +10,7 @@ config:
     - module: provider-anthropic
       config:
         api_key: ${ANTHROPIC_API_KEY}
-        default_model: claude-sonnet-4-20250514
+        default_model: claude-sonnet-4-5
 
   # Notification policy (new pattern)
   notifications:

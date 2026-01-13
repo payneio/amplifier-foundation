@@ -159,7 +159,7 @@ class CostTracker:
         "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
         "claude-haiku": {"input": 0.25, "output": 1.25},
         "claude-opus": {"input": 15.00, "output": 75.00},
-        "gpt-4": {"input": 30.00, "output": 60.00},
+        "gpt-5.2": {"input": 5.00, "output": 15.00},
     }
 
     def __init__(self, model: str = "claude-sonnet-4-5"):

@@ -152,7 +152,7 @@ providers:
   - module: provider-openai
     source: git+...
     config:
-      default_model: gpt-4o
+      default_model: gpt-5.2
       priority: 2
 ```
 
