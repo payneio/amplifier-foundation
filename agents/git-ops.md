@@ -132,9 +132,9 @@ When creating PRs:
 <checklist of testing done/needed>
 
 🤖 Generated with [Amplifier](https://github.com/microsoft/amplifier)
-
-Co-Authored-By: Amplifier <240397093+microsoft-amplifier@users.noreply.github.com>
 ```
+
+**Note:** The `Co-Authored-By:` trailer belongs in **commit messages only** (where GitHub parses it for contributor attribution). In PR descriptions, it's just displayed as text with no effect.
 
 ## Final Response Contract
 
