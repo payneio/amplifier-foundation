@@ -37,9 +37,9 @@ Same concept described differently in multiple files
 
 **Example**:
 - `docs/USER_GUIDE.md`: "Workflows configure your environment"
-- `docs/API.md`: "Profiles define capability sets"
+- `docs/API.md`: "Bundles define capability sets"
 
-**Impact**: AI doesn't know if "workflow" == "profile" or they're different
+**Impact**: AI doesn't know if "workflow" == "bundle" or they're different
 
 ### 2. Stale Documentation
 Docs don't match current code
@@ -55,7 +55,7 @@ Multiple terms for same concept
 
 **Example**:
 - README: "workflow"
-- USER_GUIDE: "profile"
+- USER_GUIDE: "bundle"
 - API: "capability set"
 
 **Impact**: AI confused about canonical term
@@ -93,10 +93,10 @@ Use workflows to configure environment.
 Run: amplifier workflow apply dev
 
 # docs/API.md
-Profiles define capability sets.
-Run: amplifier profile use dev
+Bundles define capability sets.
+Run: amplifier bundle use dev
 
-# POISON: Are "workflow" and "profile" the same? Different?
+# POISON: Are "workflow" and "bundle" the same? Different?
 ```
 
 ### Type 2: Behavioral Conflicts
@@ -204,7 +204,7 @@ Historical info belongs in git history and CHANGELOG, not docs.
 When terminology changes:
 ```bash
 # 1. Global replace (first pass only)
-find docs/ -name "*.md" -exec sed -i 's/\bworkflow\b/profile/g' {} +
+find docs/ -name "*.md" -exec sed -i 's/\bworkflow\b/bundle/g' {} +
 
 # 2. STILL review each file individually
 # Global replace is helper, not solution
@@ -213,7 +213,7 @@ find docs/ -name "*.md" -exec sed -i 's/\bworkflow\b/profile/g' {} +
 grep -rn "\bworkflow\b" docs/  # Should be zero or intentional
 
 # 4. Commit together
-git commit -am "docs: Standardize terminology: workflow → profile"
+git commit -am "docs: Standardize terminology: workflow → bundle"
 ```
 
 ---

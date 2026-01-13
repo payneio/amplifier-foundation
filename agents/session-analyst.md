@@ -123,7 +123,7 @@ If no search criteria provided, ask for at least one constraint.
 
 Amplifier stores sessions at: `~/.amplifier/projects/PROJECT_NAME/sessions/SESSION_ID/`
 
-- `metadata.json`: Contains session_id, created (ISO timestamp), profile, model, turn_count
+- `metadata.json`: Contains session_id, created (ISO timestamp), bundle, model, turn_count
 - `transcript.jsonl`: JSONL format with message roles:
   - `user`: Prompts (human in root sessions, caller agent in sub-sessions)
   - `assistant`: LLM responses (may include `tool_calls` array)
@@ -181,7 +181,7 @@ Search Plan:
 
 **For metadata filtering:**
 
-- Read metadata.json files to check: created date, profile, model, turn_count
+- Read metadata.json files to check: created date, bundle, model, turn_count
 
 **For content search:**
 
@@ -213,7 +213,7 @@ Don't just list sessions - analyze and synthesize conversation content. Produce 
 - **Location**: [full path]
 - **Created**: [readable date/time]
 - **Project**: [project name from path]
-- **Profile**: [profile name] | **Model**: [model] | **Turns**: [count]
+- **Bundle**: [bundle name] | **Model**: [model] | **Turns**: [count]
 
 **Conversation Summary:**
 [Paragraph describing what this conversation was about]
@@ -378,7 +378,7 @@ A session directory contains **two critical files** that must be kept in sync:
 |------|---------|-------------------|
 | `transcript.jsonl` | Conversation messages (user/assistant turns) | **YES** - This is what gets restored |
 | `events.jsonl` | Full audit log (API calls, tool executions, errors) | No - For debugging/logging only |
-| `metadata.json` | Session metadata (profile, timestamps, turn count) | Yes - Session info |
+| `metadata.json` | Session metadata (bundle, timestamps, turn count) | Yes - Session info |
 
 **Critical insight**: When a session resumes, `transcript.jsonl` is loaded to restore conversation context. The `events.jsonl` is the audit log but is NOT used for replay. **Both files must be truncated during a rewind to stay in sync.**
 

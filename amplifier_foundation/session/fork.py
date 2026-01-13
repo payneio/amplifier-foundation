@@ -157,7 +157,7 @@ def fork_session(
         "created": now,
         "turn_count": count_turns(sliced),
         # Preserve parent metadata
-        "profile": parent_metadata.get("profile"),
+        "bundle": parent_metadata.get("bundle"),
         "model": parent_metadata.get("model"),
     }
     _write_metadata(new_session_dir / "metadata.json", new_metadata)
