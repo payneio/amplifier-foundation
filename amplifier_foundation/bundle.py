@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
@@ -12,9 +14,13 @@ from typing import Callable
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
+    from amplifier_foundation.modules.activator import ModuleActivator
+
 from amplifier_foundation.dicts.merge import deep_merge
 from amplifier_foundation.dicts.merge import merge_module_lists
 from amplifier_foundation.paths.construction import construct_context_path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -302,8 +308,9 @@ class Bundle:
         # Save install state to disk for fast subsequent startups
         activator.finalize()
 
-        # Create resolver from activated paths
-        resolver = BundleModuleResolver(module_paths)
+        # Create resolver from activated paths with activator for lazy activation
+        # This enables child sessions to activate agent-specific modules on-demand
+        resolver = BundleModuleResolver(module_paths, activator=activator)
 
         # Get bundle package paths for inheritance by child sessions
         bundle_package_paths = activator.bundle_package_paths
@@ -536,38 +543,104 @@ class BundleModuleSource:
 
 
 class BundleModuleResolver:
-    """Module resolver for prepared bundles.
+    """Module resolver for prepared bundles with lazy activation support.
 
     Maps module IDs to their activated paths. Implements the kernel's
     ModuleSourceResolver protocol.
+
+    Supports on-demand module activation for agent-specific modules that
+    weren't in the parent bundle's initial activation set.
     """
 
-    def __init__(self, module_paths: dict[str, Path]) -> None:
-        """Initialize with activated module paths.
+    def __init__(
+        self,
+        module_paths: dict[str, Path],
+        activator: "ModuleActivator | None" = None,
+    ) -> None:
+        """Initialize with activated module paths and optional activator.
 
         Args:
             module_paths: Dict mapping module ID to local path.
+            activator: Optional ModuleActivator for lazy activation of missing modules.
+                      If provided, modules not in module_paths will be activated on-demand.
         """
         self._paths = module_paths
+        self._activator = activator
+        self._activation_lock = asyncio.Lock()
 
     def resolve(self, module_id: str, hint: Any = None) -> BundleModuleSource:
         """Resolve module ID to source.
 
         Args:
             module_id: Module identifier (e.g., "tool-bash").
-            hint: Optional hint (unused, for protocol compliance).
+            hint: Optional source URI hint for lazy activation.
 
         Returns:
             BundleModuleSource with the module path.
 
         Raises:
-            ModuleNotFoundError: If module not in activated paths.
+            ModuleNotFoundError: If module not in activated paths and lazy activation fails.
         """
         if module_id not in self._paths:
+            # This is a sync method per protocol, but we need async activation.
+            # Raise with hint about lazy activation not being synchronously available.
+            # The async_resolve() method should be used for lazy activation support.
             raise ModuleNotFoundError(
-                f"Module '{module_id}' not found in prepared bundle. Available modules: {list(self._paths.keys())}"
+                f"Module '{module_id}' not found in prepared bundle. "
+                f"Available modules: {list(self._paths.keys())}. "
+                f"Use async_resolve() for lazy activation support."
             )
         return BundleModuleSource(self._paths[module_id])
+
+    async def async_resolve(
+        self, module_id: str, hint: Any = None
+    ) -> BundleModuleSource:
+        """Async resolve with lazy activation support.
+
+        Args:
+            module_id: Module identifier (e.g., "tool-bash").
+            hint: Optional source URI for lazy activation.
+
+        Returns:
+            BundleModuleSource with the module path.
+
+        Raises:
+            ModuleNotFoundError: If module not found and activation fails.
+        """
+        # Fast path: already activated
+        if module_id in self._paths:
+            return BundleModuleSource(self._paths[module_id])
+
+        # Lazy activation path
+        if not self._activator:
+            raise ModuleNotFoundError(
+                f"Module '{module_id}' not found in prepared bundle and no activator available. "
+                f"Available modules: {list(self._paths.keys())}"
+            )
+
+        if not hint:
+            raise ModuleNotFoundError(
+                f"Module '{module_id}' not found and no source hint provided for activation. "
+                f"Available modules: {list(self._paths.keys())}"
+            )
+
+        # Thread-safe activation
+        async with self._activation_lock:
+            # Double-check after acquiring lock (another task may have activated)
+            if module_id in self._paths:
+                return BundleModuleSource(self._paths[module_id])
+
+            logger.info(f"Lazy activating module '{module_id}' from '{hint}'")
+            try:
+                module_path = await self._activator.activate(module_id, hint)
+                self._paths[module_id] = module_path
+                logger.info(f"Successfully activated '{module_id}' at {module_path}")
+                return BundleModuleSource(module_path)
+            except Exception as e:
+                logger.error(f"Failed to lazy-activate '{module_id}': {e}")
+                raise ModuleNotFoundError(
+                    f"Module '{module_id}' not found and activation failed: {e}"
+                ) from e
 
     def get_module_source(self, module_id: str) -> str | None:
         """Get module source path as string.
