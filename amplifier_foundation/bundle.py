@@ -568,23 +568,24 @@ class BundleModuleResolver:
         self._activator = activator
         self._activation_lock = asyncio.Lock()
 
-    def resolve(self, module_id: str, hint: Any = None) -> BundleModuleSource:
+    def resolve(self, module_id: str, source_hint: Any = None, profile_hint: Any = None) -> BundleModuleSource:
         """Resolve module ID to source.
 
         Args:
             module_id: Module identifier (e.g., "tool-bash").
-            hint: Optional source URI hint for lazy activation.
+            source_hint: Optional source URI hint for lazy activation.
+            profile_hint: DEPRECATED - use source_hint instead.
 
         Returns:
             BundleModuleSource with the module path.
 
         Raises:
             ModuleNotFoundError: If module not in activated paths and lazy activation fails.
+            
+        FIXME: Remove profile_hint parameter after all callers migrate to source_hint (target: v2.0).
         """
+        hint = profile_hint if profile_hint is not None else source_hint
         if module_id not in self._paths:
-            # This is a sync method per protocol, but we need async activation.
-            # Raise with hint about lazy activation not being synchronously available.
-            # The async_resolve() method should be used for lazy activation support.
             raise ModuleNotFoundError(
                 f"Module '{module_id}' not found in prepared bundle. "
                 f"Available modules: {list(self._paths.keys())}. "
@@ -593,20 +594,24 @@ class BundleModuleResolver:
         return BundleModuleSource(self._paths[module_id])
 
     async def async_resolve(
-        self, module_id: str, hint: Any = None
+        self, module_id: str, source_hint: Any = None, profile_hint: Any = None
     ) -> BundleModuleSource:
         """Async resolve with lazy activation support.
 
         Args:
             module_id: Module identifier (e.g., "tool-bash").
-            hint: Optional source URI for lazy activation.
+            source_hint: Optional source URI for lazy activation.
+            profile_hint: DEPRECATED - use source_hint instead.
 
         Returns:
             BundleModuleSource with the module path.
 
         Raises:
             ModuleNotFoundError: If module not found and activation fails.
+            
+        FIXME: Remove profile_hint parameter after all callers migrate to source_hint (target: v2.0).
         """
+        hint = profile_hint if profile_hint is not None else source_hint
         # Fast path: already activated
         if module_id in self._paths:
             return BundleModuleSource(self._paths[module_id])
