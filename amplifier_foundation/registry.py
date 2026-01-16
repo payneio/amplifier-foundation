@@ -316,18 +316,31 @@ class BundleRegistry:
         else:
             uri = name_or_uri
 
-        # Cycle detection: distinguish between real circular dependencies and intra-bundle subdirectory references
+        # Cycle detection: distinguish between real circular dependencies and legitimate self-references
         base_uri = uri.split("#")[0] if "#" in uri else uri
         is_subdirectory = "#subdirectory=" in uri
+
+        # Check if this is a namespace preload for an already-loading bundle
+        # When amplifier-dev includes "foundation" by name, preload loads foundation's URI
+        # to register the namespace. This is NOT circular - it's the same bundle being prepared.
+        is_namespace_preload = (
+            name_or_uri in self._registry
+            and self._registry[name_or_uri].uri.split("#")[0] == base_uri
+            and base_uri in self._loading_base
+        )
 
         # Check for exact URI match (same URI with same fragment)
         if uri in self._loading:
             raise BundleDependencyError(f"Circular dependency detected: {uri}")
 
         # Check for inter-bundle circular dependency (different bundles including each other)
-        # Allow intra-bundle subdirectory references (foundation:behaviors/sessions is OK)
-        if base_uri in self._loading_base and not is_subdirectory:
-            # Base bundle already loading and this is not a subdirectory reference → circular
+        # Allow: intra-bundle subdirectory references + namespace preload self-references
+        if (
+            base_uri in self._loading_base
+            and not is_subdirectory
+            and not is_namespace_preload
+        ):
+            # Base bundle already loading and this is neither subdirectory nor namespace preload → circular
             raise BundleDependencyError(f"Circular dependency detected: {uri}")
 
         # Track both full URI and base URI
