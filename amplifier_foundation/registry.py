@@ -144,7 +144,9 @@ class BundleRegistry:
             cache_dir=self._home / "cache",
             base_path=Path.cwd(),
         )
-        self._loading: set[str] = set()  # Cycle detection for includes
+        # Cycle detection tracking: full URIs and base URIs (without fragments)
+        self._loading: set[str] = set()  # Complete URIs being loaded
+        self._loading_base: set[str] = set()  # Base URIs (stripped of #subdirectory)
         self._load_persisted_state()
         self._validate_cached_paths()
 
@@ -314,11 +316,23 @@ class BundleRegistry:
         else:
             uri = name_or_uri
 
-        # Cycle detection
+        # Cycle detection: distinguish between real circular dependencies and intra-bundle subdirectory references
+        base_uri = uri.split("#")[0] if "#" in uri else uri
+        is_subdirectory = "#subdirectory=" in uri
+
+        # Check for exact URI match (same URI with same fragment)
         if uri in self._loading:
             raise BundleDependencyError(f"Circular dependency detected: {uri}")
 
+        # Check for inter-bundle circular dependency (different bundles including each other)
+        # Allow intra-bundle subdirectory references (foundation:behaviors/sessions is OK)
+        if base_uri in self._loading_base and not is_subdirectory:
+            # Base bundle already loading and this is not a subdirectory reference → circular
+            raise BundleDependencyError(f"Circular dependency detected: {uri}")
+
+        # Track both full URI and base URI
         self._loading.add(uri)
+        self._loading_base.add(base_uri)
         try:
             # Resolve URI to local paths (active_path and source_root)
             resolved = await self._source_resolver.resolve(uri)
@@ -453,7 +467,10 @@ class BundleRegistry:
             return bundle
 
         finally:
+            # Clean up both tracking sets
             self._loading.discard(uri)
+            base_uri = uri.split("#")[0] if "#" in uri else uri
+            self._loading_base.discard(base_uri)
 
     async def _load_from_path(self, path: Path) -> Bundle:
         """Load bundle from local path.
