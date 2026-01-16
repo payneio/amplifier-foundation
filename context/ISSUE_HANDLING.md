@@ -735,6 +735,217 @@ This flagged legitimate self-referential namespace patterns as circular.
 
 ---
 
+## Case Study: P0 Regression from Incomplete Algorithm Fix
+
+### Problem
+CRITICAL P0 regression immediately after deploying the circular dependency fix. Users completely blocked - cannot start Amplifier sessions.
+
+**Two symptoms:**
+1. Circular dependency warnings still appearing (fix didn't work)
+2. NEW error: "Configuration must specify session.orchestrator" (crash)
+
+### What We Did (Timeline)
+
+**Fix deployment:**
+- Identified circular dependency false positives
+- Chose "better option" (dual tracking with _loading_base)
+- Shadow tested: 11/11 tests passed ✓
+- Pushed to production (commit 87e42ae)
+
+**Immediate failure:**
+- Users updated and crashed
+- Cannot start sessions
+- No workaround available
+- Emergency investigation required
+
+### Root Cause
+
+**The Issue #6 fix was INCOMPLETE:**
+
+**We identified TWO patterns:**
+- ✅ Inter-bundle circular (block this)
+- ✅ Intra-bundle subdirectory (allow this)
+
+**We MISSED a THIRD pattern:**
+- ❌ Namespace preload self-reference (allow this)
+
+**The bug in our fix:**
+```python
+is_subdirectory = "#subdirectory=" in uri  # Only checked for fragment
+
+if base_uri in self._loading_base and not is_subdirectory:
+    raise BundleDependencyError(...)  # Missed namespace preload!
+```
+
+When amplifier-dev included "foundation" by registered name for namespace resolution, the detector saw foundation's base URI already loading but no `#subdirectory=` fragment → false circular error → foundation SKIPPED → no orchestrator config → crash.
+
+### Key Failures in Our Process
+
+**Failure 1: Incomplete pattern enumeration**
+- Stopped at two patterns without asking: "What else?"
+- Didn't map ALL the ways bundles reference each other
+- Algorithm was solving 2 out of 3 cases
+
+**Lesson:** When categorizing behaviors, enumerate EXHAUSTIVELY before implementing. Document: "This algorithm handles patterns A, B, C" and verify no pattern D exists.
+
+**Failure 2: Testing the wrong scenario**
+- Tested with foundation bundle directly
+- Actual users use amplifier-dev (sub-bundle)
+- The failure only appeared in sub-bundle → parent composition
+- 11/11 tests passed but didn't cover real deployment
+
+**Lesson:** Test in ACTUAL user scenarios, not isolated components. Ask: "How do users actually use this?" Include their bundle configurations in tests.
+
+**Failure 3: False confidence from green tests**
+- "11/11 tests passed" created confidence
+- But tests only covered what we thought of
+- Didn't cover the pattern we missed
+- Green checkmarks ≠ complete coverage
+
+**Lesson:** Passing tests prove what you tested, not what you didn't test. Ask: "What scenarios are NOT in our test suite?"
+
+**Failure 4: Didn't test cascading impact**
+- Fixed warnings (cosmetic issue)
+- Broke orchestrator config (P0 blocker)
+- Didn't validate: "What happens if includes are skipped?"
+- Downstream impact not considered
+
+**Lesson:** When fixing error handling, validate cascading effects. If detection rejects something, trace what depends on it loading successfully.
+
+**Failure 5: Skipped actual deployment smoke test**
+- Tested in shadow with foundation bundle
+- Didn't test with amplifier-dev (what users actually run)
+- Independent smoke test would have caught this immediately
+- Our own methodology says: smoke test before GATE 2
+
+**Lesson:** We violated our own process. Shadow test ≠ smoke test. Test in the actual configuration users deploy.
+
+**Failure 6: "Better" wasn't complete**
+- Chose Option B (dual tracking) over Option A (simple skip) for elegance
+- Option B was more sophisticated but incomplete
+- Option A (skip preload if already loading) would have worked for all patterns
+- Sophistication without completeness = dangerous
+
+**Lesson:** Simple and complete beats elegant and incomplete. When choosing between options, completeness is more important than conceptual clarity.
+
+### The Cascade
+
+```
+Circular detection logic incomplete
+  ↓
+Foundation include flagged as circular
+  ↓
+Foundation bundle SKIPPED
+  ↓
+amplifier-dev has no orchestrator config (depends on foundation)
+  ↓
+Session creation crashes
+  ↓
+Users completely blocked (P0 incident)
+```
+
+**Impact:**
+- ALL users blocked
+- No workaround
+- Required emergency hotfix
+- Violated "don't break userspace" principle from KERNEL_PHILOSOPHY
+
+### Emergency Response
+
+**Rapid investigation:**
+- Parallel agent dispatch (bug-hunter + explorer)
+- Found missing pattern in <30 minutes
+- Implemented hotfix: added is_namespace_preload check
+- Pushed without normal gates (P0 exception)
+- Users unblocked within 1 hour
+
+**The correct fix:**
+```python
+is_namespace_preload = (
+    name_or_uri in self._registry and
+    self._registry[name_or_uri].uri.split("#")[0] == base_uri and
+    base_uri in self._loading_base
+)
+
+if base_uri in self._loading_base and not is_subdirectory and not is_namespace_preload:
+    raise BundleDependencyError(...)
+```
+
+Now handles all THREE patterns correctly.
+
+### Critical Learnings
+
+**When fixing algorithms (especially detection/validation):**
+
+1. **Enumerate ALL patterns BEFORE implementing:**
+   - Map every way the behavior can legitimately occur
+   - Don't stop at "two types"
+   - Document exhaustively: "Patterns A, B, C are all legitimate"
+
+2. **Test in ACTUAL deployment configurations:**
+   - Not just the component in isolation
+   - Include sub-bundles, dependent bundles, user configurations
+   - Test how users actually use the system
+
+3. **Validate downstream impact of rejections:**
+   - If algorithm rejects X, what breaks that depends on X?
+   - Trace cascading failures
+   - Test error paths as thoroughly as success paths
+
+4. **Passing tests ≠ complete coverage:**
+   - "All tests pass" proves what you tested, not what you missed
+   - Ask: "What scenarios aren't in our test suite?"
+   - Real-world scenarios > artificial test cases
+
+5. **Simple and complete > elegant and incomplete:**
+   - Sophistication is a liability without completeness
+   - "Conceptually cleaner" doesn't matter if it's wrong
+   - Completeness is the priority, simplicity is the tie-breaker
+
+6. **Follow your own process:**
+   - Our methodology says: smoke test before GATE 2
+   - We skipped it (thought shadow test was enough)
+   - Smoke test in actual user config would have caught this
+   - Process exists for a reason - don't skip steps
+
+7. **P0 risk assessment for "working" systems:**
+   - Issue #6 was warnings (cosmetic, bundles still worked)
+   - Seemed low-risk to fix
+   - But the fix could break loading entirely
+   - "Working but annoying" > "broken" - be conservative
+
+### Updated Process Requirements
+
+**For algorithm/detection fixes, add to checklist:**
+
+```markdown
+### Algorithm Fix Validation
+- [ ] Enumerate ALL legitimate patterns (not just two)
+- [ ] Test with actual user bundle configurations
+- [ ] Validate cascading impact if algorithm rejects inputs
+- [ ] Run smoke test with EXACT user deployment scenario
+- [ ] Ask: "What real-world scenarios aren't in our tests?"
+- [ ] Consider: Is simple fix complete? Or is elegant fix incomplete?
+```
+
+### The Meta-Lesson
+
+**We violated our own methodology:**
+
+The ISSUE_HANDLING.md we just created says:
+> "Shadow test → Smoke test (final defense) → GATE 2 → Push"
+
+**We did:**
+> "Shadow test → GATE 2 → Push → **SKIP** smoke test"
+
+**Result:** Deployed broken code that blocked all users.
+
+**The irony:** We shipped the methodology document in the SAME commit that violated it (d340ca3 + 87e42ae pushed together).
+
+**Lesson:** Follow your own process, especially the parts designed to catch exactly this kind of error.
+
+---
+
 ## Templates
 
 ### Evidence Requirements Template
