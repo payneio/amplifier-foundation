@@ -59,6 +59,7 @@ class BundleState:
     explicitly_requested: bool = (
         False  # True if user explicitly requested (bundle use/add)
     )
+    app_bundle: bool = False  # True if this is an app bundle (always composed)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
@@ -71,6 +72,7 @@ class BundleState:
             "local_path": self.local_path,
             "is_root": self.is_root,
             "explicitly_requested": self.explicitly_requested,
+            "app_bundle": self.app_bundle,
         }
         # Only include optional fields if they have data
         if self.includes:
@@ -104,6 +106,9 @@ class BundleState:
             explicitly_requested=data.get(
                 "explicitly_requested", False
             ),  # Default False for safety
+            app_bundle=data.get(
+                "app_bundle", False
+            ),  # Default False for backwards compatibility
         )
 
 
