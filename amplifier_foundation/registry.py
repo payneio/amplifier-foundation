@@ -359,7 +359,13 @@ class BundleRegistry:
         self._pending_loads[uri] = future
 
         try:
-            new_chain = loading_chain | {uri, base_uri}
+            # For sub-bundles (#subdirectory=), only add the specific URI to the chain,
+            # NOT the base_uri. This allows sub-bundles to include their root bundle.
+            # e.g., amplifier-dev (sub-bundle of foundation) can include foundation
+            if is_subdirectory:
+                new_chain = loading_chain | {uri}
+            else:
+                new_chain = loading_chain | {uri, base_uri}
             # Resolve URI to local paths (active_path and source_root)
             resolved = await self._source_resolver.resolve(uri)
             if resolved is None:
