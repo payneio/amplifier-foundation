@@ -565,4 +565,4 @@ class TestDiamondAndCircularDependencies:
 
             # Should have logged a warning about circular dependency
             warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-            assert any("Circular include skipped" in msg for msg in warning_messages)
+            assert any("Circular Include Skipped" in msg for msg in warning_messages)

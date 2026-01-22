@@ -606,7 +606,10 @@ class BundleRegistry:
         # Phase 2: Load all includes in PARALLEL (pass chain for per-chain cycle detection)
         tasks = [
             self._load_single(
-                source, auto_register=True, auto_include=True, _loading_chain=_loading_chain
+                source,
+                auto_register=True,
+                auto_include=True,
+                _loading_chain=_loading_chain,
             )
             for source in include_sources
         ]
@@ -619,7 +622,9 @@ class BundleRegistry:
             if isinstance(result, BaseException):
                 if isinstance(result, BundleDependencyError):
                     # Circular dependency - log helpful warning and skip
-                    self._log_circular_dependency_warning(source, result, _loading_chain)
+                    self._log_circular_dependency_warning(
+                        source, result, _loading_chain
+                    )
                 else:
                     source_name = self._extract_bundle_name(source)
                     lines = [
@@ -628,7 +633,9 @@ class BundleRegistry:
                         str(result),  # The actual error message
                     ]
 
-                    message = self._format_warning_panel("Include Failed (skipping)", lines)
+                    message = self._format_warning_panel(
+                        "Include Failed (skipping)", lines
+                    )
                     logger.warning(message)
             else:
                 included_bundles.append(result)
@@ -713,7 +720,25 @@ class BundleRegistry:
                 state = self._registry.get(namespace)
 
                 # If namespace is registered but not loaded (no local_path), queue it
+                # BUT: skip if namespace's URI is already in the loading chain
+                # (we're currently loading it, so preload would be circular)
                 if state and not state.local_path:
+                    if _loading_chain:
+                        namespace_uri = state.uri
+                        namespace_base = (
+                            namespace_uri.split("#")[0]
+                            if "#" in namespace_uri
+                            else namespace_uri
+                        )
+                        if (
+                            namespace_uri in _loading_chain
+                            or namespace_base in _loading_chain
+                        ):
+                            # Already loading this namespace - skip preload
+                            logger.debug(
+                                f"Skipping preload of '{namespace}' - already in loading chain"
+                            )
+                            continue
                     namespaces_to_load.add(namespace)
 
         # Load namespace bundles to populate their local_path
@@ -771,7 +796,7 @@ class BundleRegistry:
                 # Handle existing #subdirectory= fragments
                 base_uri = state.uri.split("#")[0]  # Remove any existing fragment
 
-                # Verify the path exists locally before constructing the URI
+                # If we have local_path, verify the path exists and get exact filename
                 if state.local_path:
                     namespace_path = Path(state.local_path)
                     if namespace_path.is_file():
@@ -792,10 +817,18 @@ class BundleRegistry:
 
                         return f"{base_uri}#subdirectory={rel_from_root}"
 
-                logger.debug(
-                    f"Namespace '{namespace}' is git-based but path '{rel_path}' not found locally"
-                )
-                return None
+                    logger.debug(
+                        f"Namespace '{namespace}' is git-based but path '{rel_path}' not found locally"
+                    )
+                    return None
+                else:
+                    # No local_path yet (namespace is currently being loaded)
+                    # Construct the URI directly - verification happens when loading
+                    logger.debug(
+                        f"Namespace '{namespace}' has no local_path yet, "
+                        f"constructing URI directly for '{rel_path}'"
+                    )
+                    return f"{base_uri}#subdirectory={rel_path}"
 
             # Fall back to file:// for non-git sources (local bundles, etc.)
             if state.local_path:
@@ -919,7 +952,9 @@ class BundleRegistry:
         source_name = self._extract_bundle_name(source)
 
         if loading_chain:
-            chain_names = [self._extract_bundle_name(uri) for uri in sorted(loading_chain)]
+            chain_names = [
+                self._extract_bundle_name(uri) for uri in sorted(loading_chain)
+            ]
             chain_str = " → ".join(chain_names)
         else:
             chain_str = "unknown"
