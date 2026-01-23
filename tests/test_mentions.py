@@ -224,3 +224,40 @@ class TestBaseMentionResolver:
         # Without a registered bundle, should return None (not try CWD)
         result = resolver.resolve("@foundation:context/file.md")
         assert result is None  # Bundle not registered, but didn't try local path
+
+    def test_resolve_uses_base_path_not_cwd(self, tmp_path: Path) -> None:
+        """Local @path resolves relative to base_path, not CWD.
+
+        This is the critical test for production behavior: when the CLI runs
+        from a different directory than the user's project, @AGENTS.md should
+        resolve relative to the project's base_path, not the CLI's CWD.
+        """
+        import os
+
+        # Create a project directory with a file
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        test_file = project_dir / "AGENTS.md"
+        test_file.write_text("# Project agents")
+
+        # Create a different directory to be CWD (simulating CLI running elsewhere)
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+
+        old_cwd = os.getcwd()
+        try:
+            # Change CWD to the "other" directory (NOT where the file is)
+            os.chdir(other_dir)
+
+            # Create resolver with base_path pointing to the project
+            resolver = BaseMentionResolver(base_path=project_dir)
+
+            # @AGENTS.md should resolve relative to base_path (project_dir),
+            # NOT relative to CWD (other_dir)
+            result = resolver.resolve("@AGENTS.md")
+            assert result == test_file, (
+                f"Expected {test_file}, got {result}. "
+                "Resolver should use base_path, not CWD."
+            )
+        finally:
+            os.chdir(old_cwd)

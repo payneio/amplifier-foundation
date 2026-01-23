@@ -179,7 +179,9 @@ class Bundle:
             if other.instruction:
                 result.instruction = other.instruction
 
-            # Base path: use other's if set
+            # Base path: use other's (the bundle being composed in) if set
+            # In typical usage: result.compose(user_bundle), so other=user_bundle
+            # This ensures @AGENTS.md resolves relative to user's project, not cache
             if other.base_path:
                 result.base_path = other.base_path
 
@@ -1034,7 +1036,16 @@ class PreparedBundle:
             if context_manager and hasattr(
                 context_manager, "set_system_prompt_factory"
             ):
+                # Context manager supports dynamic system prompt - register factory
                 await context_manager.set_system_prompt_factory(factory)
+            elif context_manager:
+                # FALLBACK: Context manager doesn't support dynamic factory.
+                # Pre-resolve @mentions now and inject as system message.
+                # Trade-off: Files won't be re-read mid-session, but @mentions work.
+                resolved_prompt = await factory()
+                await context_manager.add_message(
+                    {"role": "system", "content": resolved_prompt}
+                )
 
         return session
 
@@ -1158,6 +1169,12 @@ class PreparedBundle:
             context = child_session.coordinator.get("context")
             if context and hasattr(context, "set_system_prompt_factory"):
                 await context.set_system_prompt_factory(factory)
+            elif context:
+                # FALLBACK: Pre-resolve @mentions for context managers without factory support
+                resolved_prompt = await factory()
+                await context.add_message(
+                    {"role": "system", "content": resolved_prompt}
+                )
 
         # Execute instruction and cleanup
         try:
