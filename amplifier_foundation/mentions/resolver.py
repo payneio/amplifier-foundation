@@ -12,9 +12,11 @@ if TYPE_CHECKING:
 class BaseMentionResolver:
     """Base implementation of MentionResolverProtocol.
 
-    Supports two patterns:
+    Supports patterns:
     - @bundle-name:context-name - From bundle's context namespace
     - @path - Relative to current working directory (CWD)
+    - @~/path - Relative to user's home directory
+    - @~user/path - Relative to another user's home directory
 
     Apps extend this class to add shortcuts like @user:, @project:.
     """
@@ -55,14 +57,21 @@ class BaseMentionResolver:
                 return bundle.resolve_context_path(name)
             return None
 
-        # Pattern 2: @path (relative to CWD for user-local files)
-        cwd = Path.cwd()
-        path = cwd / mention_body
+        # Pattern 2: @path (relative to CWD, or home directory for ~ paths)
+        if mention_body.startswith("~"):
+            # Home directory path (~/... or ~user/...)
+            path = Path(mention_body).expanduser()
+            path_md = Path(f"{mention_body}.md").expanduser()
+        else:
+            # Relative to current working directory
+            cwd = Path.cwd()
+            path = cwd / mention_body
+            path_md = cwd / f"{mention_body}.md"
+
         if path.exists():
             return path
 
         # Try with .md extension
-        path_md = cwd / f"{mention_body}.md"
         if path_md.exists():
             return path_md
 

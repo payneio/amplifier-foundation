@@ -27,9 +27,9 @@ def parse_mentions(text: str) -> list[str]:
     text_without_code = _remove_code_blocks(text)
 
     # Find @mentions
-    # Pattern: @ followed by word chars, colons, slashes, dots, hyphens
+    # Pattern: @ followed by word chars, colons, slashes, dots, hyphens, tildes
     # But not email addresses (no @ followed by domain pattern)
-    pattern = r"@(?![a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})([a-zA-Z0-9_:./\-]+)"
+    pattern = r"@(?![a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})([a-zA-Z0-9_:./\~-]+)"
 
     matches = re.findall(pattern, text_without_code)
 
