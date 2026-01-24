@@ -49,13 +49,20 @@ def _remove_code_blocks(text: str) -> str:
     """Remove code blocks from text.
 
     Removes:
-    - Fenced code blocks (```...```)
-    - Inline code (`...`)
-    """
-    # Remove fenced code blocks (including language identifier)
-    text = re.sub(r"```[^\n]*\n.*?```", "", text, flags=re.DOTALL)
+    - Fenced code blocks (```...```) - only when ``` is at line start
+    - Inline code (`...`) - but not nested backticks like (```)
 
-    # Remove inline code
-    text = re.sub(r"`[^`]+`", "", text)
+    Note: Code fences must start at the beginning of a line per CommonMark spec.
+    Inline mentions of ``` (like "wrap in code fences (```)") are NOT treated as fences.
+    """
+    # Remove fenced code blocks - ``` must be at start of line (or start of text)
+    # This prevents inline mentions like "(```)" from being treated as fence starts
+    text = re.sub(r"(?:^|\n)```[^\n]*\n.*?(?:^|\n)```", "\n", text, flags=re.DOTALL | re.MULTILINE)
+
+    # Remove inline code - single backticks with content
+    # Use negative lookbehind/lookahead to avoid matching backticks that are
+    # adjacent to other backticks (like in "wrap in code fences (```)")
+    # (?<!`) = not preceded by backtick, (?!`) = not followed by backtick
+    text = re.sub(r"(?<!`)`(?!`)[^`]+(?<!`)`(?!`)", "", text)
 
     return text
