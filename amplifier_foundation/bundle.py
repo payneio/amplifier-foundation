@@ -864,6 +864,7 @@ class PreparedBundle:
         self,
         bundle: "Bundle",
         session: Any,
+        session_cwd: Path | None = None,
     ) -> "Callable[[], Awaitable[str]]":
         """Create a factory that produces fresh system prompt content on each call.
 
@@ -874,6 +875,8 @@ class PreparedBundle:
         Args:
             bundle: Bundle containing instruction, context files, and base paths.
             session: Session for capability access (e.g., extended mention resolver).
+            session_cwd: Working directory for resolving local @-mentions like
+                @AGENTS.md. If not provided, falls back to bundle.base_path.
 
         Returns:
             Async callable that returns the system prompt string.
@@ -887,6 +890,8 @@ class PreparedBundle:
         # Capture state for the closure
         captured_bundle = bundle
         captured_self = self
+        # Use session_cwd if provided, otherwise fall back to bundle's base_path
+        captured_base_path = session_cwd or bundle.base_path or Path.cwd()
 
         async def factory() -> str:
             # Build combined instruction: main instruction + all context.include files
@@ -908,13 +913,11 @@ class PreparedBundle:
                 captured_bundle
             )
 
-            # For local @-mentions (@AGENTS.md, @.amplifier/...), use CWD (user's project)
+            # For local @-mentions (@AGENTS.md, @.amplifier/...), use session_cwd
             # Bundle-namespaced @-mentions (@foundation:path) use bundles_for_resolver
-            # Note: captured_bundle.base_path is the cache dir for registry bundles,
-            # which is wrong for local file resolution
             resolver = BaseMentionResolver(
                 bundles=bundles_for_resolver,
-                base_path=Path.cwd(),
+                base_path=captured_base_path,
             )
 
             # Fresh deduplicator each call (files may have changed)
@@ -950,6 +953,7 @@ class PreparedBundle:
         parent_id: str | None = None,
         approval_system: Any = None,
         display_system: Any = None,
+        session_cwd: Path | None = None,
     ) -> Any:
         """Create an AmplifierSession with the resolver properly mounted.
 
@@ -968,6 +972,9 @@ class PreparedBundle:
             parent_id: Optional parent session ID (for lineage tracking).
             approval_system: Optional approval system for hooks.
             display_system: Optional display system for hooks.
+            session_cwd: Optional working directory for resolving local @-mentions
+                like @AGENTS.md. Apps should pass their project/workspace directory.
+                Defaults to bundle.base_path if not provided.
 
         Returns:
             Initialized AmplifierSession ready for execute().
@@ -1022,11 +1029,11 @@ class PreparedBundle:
             # Note: These are created once for capability registration, but the factory
             # creates fresh instances each call for accurate file re-reading
             bundles_for_resolver = self._build_bundles_for_resolver(self.bundle)
-            # For local @-mentions, use CWD (user's project directory)
-            # self.bundle.base_path is the cache dir for registry bundles
+            # Use session_cwd for local @-mentions, fall back to bundle.base_path
+            resolver_base = session_cwd or self.bundle.base_path or Path.cwd()
             initial_resolver = BaseMentionResolver(
                 bundles=bundles_for_resolver,
-                base_path=Path.cwd(),
+                base_path=resolver_base,
             )
             initial_deduplicator = ContentDeduplicator()
             session.coordinator.register_capability(
@@ -1037,7 +1044,9 @@ class PreparedBundle:
             )
 
             # Create and register the system prompt factory
-            factory = self._create_system_prompt_factory(self.bundle, session)
+            factory = self._create_system_prompt_factory(
+                self.bundle, session, session_cwd=session_cwd
+            )
             context_manager = session.coordinator.get("context")
             if context_manager and hasattr(
                 context_manager, "set_system_prompt_factory"
@@ -1065,6 +1074,7 @@ class PreparedBundle:
         session_id: str | None = None,
         orchestrator_config: dict[str, Any] | None = None,
         parent_messages: list[dict[str, Any]] | None = None,
+        session_cwd: Path | None = None,
     ) -> dict[str, Any]:
         """Spawn a sub-session with a child bundle.
 
@@ -1170,7 +1180,7 @@ class PreparedBundle:
         # any @mentioned files are fresh (though spawn sessions are typically short-lived)
         if effective_bundle.instruction or effective_bundle.context:
             factory = self._create_system_prompt_factory(
-                effective_bundle, child_session
+                effective_bundle, child_session, session_cwd=session_cwd
             )
             context = child_session.coordinator.get("context")
             if context and hasattr(context, "set_system_prompt_factory"):
