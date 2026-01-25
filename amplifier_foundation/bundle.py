@@ -60,6 +60,7 @@ class Bundle:
     providers: list[dict[str, Any]] = field(default_factory=list)
     tools: list[dict[str, Any]] = field(default_factory=list)
     hooks: list[dict[str, Any]] = field(default_factory=list)
+    spawn: dict[str, Any] = field(default_factory=dict)  # Spawn config (exclude_tools, etc.)
 
     # Resources
     agents: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -120,6 +121,7 @@ class Bundle:
             providers=list(self.providers),
             tools=list(self.tools),
             hooks=list(self.hooks),
+            spawn=dict(self.spawn),
             agents=dict(self.agents),
             context=initial_context,
             _pending_context=initial_pending_context,
@@ -152,6 +154,9 @@ class Bundle:
 
             # Session: deep merge
             result.session = deep_merge(result.session, other.session)
+
+            # Spawn config: deep merge (later overrides)
+            result.spawn = deep_merge(result.spawn, other.spawn)
 
             # Module lists: merge by module ID
             result.providers = merge_module_lists(result.providers, other.providers)
@@ -210,6 +215,10 @@ class Bundle:
         # Agents go in mount plan for sub-session delegation
         if self.agents:
             mount_plan["agents"] = dict(self.agents)
+
+        # Spawn config for tool filtering in spawned agents
+        if self.spawn:
+            mount_plan["spawn"] = dict(self.spawn)
 
         return mount_plan
 
@@ -503,6 +512,7 @@ class Bundle:
             providers=providers,
             tools=tools,
             hooks=hooks,
+            spawn=data.get("spawn", {}),
             agents=_parse_agents(data.get("agents", {}), base_path),
             context=resolved_context,
             _pending_context=pending_context,
