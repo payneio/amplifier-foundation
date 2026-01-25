@@ -60,7 +60,9 @@ class Bundle:
     providers: list[dict[str, Any]] = field(default_factory=list)
     tools: list[dict[str, Any]] = field(default_factory=list)
     hooks: list[dict[str, Any]] = field(default_factory=list)
-    spawn: dict[str, Any] = field(default_factory=dict)  # Spawn config (exclude_tools, etc.)
+    spawn: dict[str, Any] = field(
+        default_factory=dict
+    )  # Spawn config (exclude_tools, etc.)
 
     # Resources
     agents: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -964,6 +966,7 @@ class PreparedBundle:
         approval_system: Any = None,
         display_system: Any = None,
         session_cwd: Path | None = None,
+        is_resumed: bool = False,
     ) -> Any:
         """Create an AmplifierSession with the resolver properly mounted.
 
@@ -985,6 +988,8 @@ class PreparedBundle:
             session_cwd: Optional working directory for resolving local @-mentions
                 like @AGENTS.md. Apps should pass their project/workspace directory.
                 Defaults to bundle.base_path if not provided.
+            is_resumed: Whether this session is being resumed (vs newly created).
+                Controls whether session:start or session:resume events are emitted.
 
         Returns:
             Initialized AmplifierSession ready for execute().
@@ -1002,6 +1007,7 @@ class PreparedBundle:
             parent_id=parent_id,
             approval_system=approval_system,
             display_system=display_system,
+            is_resumed=is_resumed,
         )
 
         # Mount the resolver before initialization
