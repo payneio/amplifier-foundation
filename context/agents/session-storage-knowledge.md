@@ -93,8 +93,11 @@ Each line is a JSON object:
 
 | Event Type | Data Size | Safe Fields |
 |------------|-----------|-------------|
-| `session:start` | Small | All |
-| `session:end` | Small | All |
+| `execution:start` | Small | All |
+| `execution:end` | Small | All |
+| `session:start` | Small | All (kernel session lifecycle) |
+| `session:fork` | Small | All (kernel session forked) |
+| `session:resume` | Small | All (kernel session resumed) |
 | `prompt:submit` | Medium | `event`, `ts` |
 | `llm:request` | **HUGE** | `event`, `ts`, `data.model`, `data.message_count` |
 | `llm:response` | **HUGE** | `event`, `ts`, `data.model`, `data.usage`, `data.duration_ms` |

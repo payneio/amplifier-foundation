@@ -42,6 +42,7 @@ includes:
 
 
 session:
+  debug: true
   orchestrator:
     module: loop-streaming
     source: git+https://github.com/microsoft/amplifier-module-loop-streaming@main

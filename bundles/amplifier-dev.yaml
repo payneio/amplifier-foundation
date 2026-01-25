@@ -8,3 +8,7 @@ includes:
   - bundle: foundation
   # Amplifier dev behavior (agents + context)
   - bundle: git+https://github.com/microsoft/amplifier-foundation@main#subdirectory=behaviors/amplifier-dev.yaml
+
+# Development-specific session settings
+session:
+  raw_debug: true  # Enable raw debug events (debug: true inherited from foundation)
