@@ -69,7 +69,8 @@ async def prepare_and_execute(composed: Bundle, prompt: str) -> str:
     prepared = await composed.prepare()
 
     # create_session() creates AmplifierSession with the mount plan
-    session = await prepared.create_session()
+    # Pass session_cwd for consistent path resolution (critical for server deployments)
+    session = await prepared.create_session(session_cwd=Path.cwd())
 
     # execute() runs the prompt through the LLM
     async with session:

@@ -41,13 +41,16 @@ async def main():
     print("✓ Composed bundles")
 
     # Step 4: Prepare (resolves and downloads modules if needed)
-    print("⏳ Preparing (downloading modules if needed, this may take 30s first time)...")
+    print(
+        "⏳ Preparing (downloading modules if needed, this may take 30s first time)..."
+    )
     prepared = await composed.prepare()
     print("✓ Modules prepared")
 
     # Step 5: Create session and execute
+    # Pass session_cwd for consistent path resolution (critical for server deployments)
     print("⏳ Creating session...")
-    session = await prepared.create_session()
+    session = await prepared.create_session(session_cwd=Path.cwd())
     print("✓ Session ready")
 
     # Step 6: Execute a prompt
