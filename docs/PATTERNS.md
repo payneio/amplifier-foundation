@@ -254,6 +254,27 @@ result = await prepared.spawn(
 print(result["output"])
 ```
 
+### Spawning with Provider Preferences
+
+Use `provider_preferences` for ordered fallback chains when spawning agents:
+
+```python
+from amplifier_foundation import ProviderPreference
+
+# Spawn with provider preference chain (tries in order)
+result = await prepared.spawn(
+    child_bundle=agent_bundle,
+    instruction="Quick analysis task",
+    provider_preferences=[
+        ProviderPreference(provider="anthropic", model="claude-haiku-*"),
+        ProviderPreference(provider="openai", model="gpt-4o-mini"),
+    ],
+)
+
+# Model patterns use glob matching (fnmatch)
+# "claude-haiku-*" resolves to latest matching model (e.g., "claude-haiku-20250110")
+```
+
 ### Controlling Agent Tool Inheritance
 
 By default, spawned agents inherit all tools from their parent. Configure tool inheritance

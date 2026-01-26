@@ -106,6 +106,19 @@ from amplifier_foundation import Bundle, BundleRegistry, load_bundle
 | `set_working_dir` | `session/capabilities.py` | Update session working directory dynamically |
 | `WORKING_DIR_CAPABILITY` | `session/capabilities.py` | Capability name constant (`"session.working_dir"`) |
 
+## Spawn Utilities
+
+Utilities for spawning sub-sessions with provider/model preferences.
+
+| Export | Source | Purpose |
+|--------|--------|---------|
+| `ProviderPreference` | `spawn_utils.py` | Dataclass for provider/model preference (supports glob patterns) |
+| `apply_provider_preferences` | `spawn_utils.py` | Apply ordered preferences to mount plan |
+| `resolve_model_pattern` | `spawn_utils.py` | Resolve glob patterns (e.g., `claude-haiku-*`) to concrete model names |
+| `is_glob_pattern` | `spawn_utils.py` | Check if model string contains glob characters |
+| `generate_sub_session_id` | `spawn_utils.py` | Generate W3C Trace Context compliant sub-session ID |
+| `extract_agent_name_from_session_id` | `spawn_utils.py` | Extract agent name from hierarchical session ID |
+
 ## Reading the Source
 
 Each source file has comprehensive docstrings. To read them:
