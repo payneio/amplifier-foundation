@@ -3,24 +3,6 @@ bundle:
   name: foundation
   version: 1.0.0
   description: Foundation bundle - provider-agnostic base configuration
-  # Sub-bundles available within this bundle's namespace
-  # These are discoverable via `amplifier bundle list` when foundation is loaded
-  sub_bundles:
-    - name: amplifier-dev
-      path: bundles/amplifier-dev.yaml
-      description: Amplifier ecosystem development - multi-repo workflows, shadow environments
-    - name: minimal
-      path: bundles/minimal.yaml
-      description: Minimal tools only - filesystem, bash, web
-    - name: with-anthropic
-      path: bundles/with-anthropic.yaml
-      description: Foundation with Anthropic Claude provider
-    - name: with-openai
-      path: bundles/with-openai.yaml
-      description: Foundation with OpenAI provider
-    - name: exp-delegation
-      path: experiments/delegation-only
-      description: Experimental delegation-only bundle
 
 includes:
   # Ecosystem expert behaviors (provides @amplifier: and @core: namespaces)
