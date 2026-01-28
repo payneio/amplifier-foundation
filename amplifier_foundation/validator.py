@@ -85,9 +85,13 @@ class BundleValidator:
         """
         result = self.validate(bundle)
         if not result.valid:
-            raise BundleValidationError(f"Bundle validation failed: {'; '.join(result.errors)}")
+            raise BundleValidationError(
+                f"Bundle validation failed: {'; '.join(result.errors)}"
+            )
 
-    def _validate_required_fields(self, bundle: Bundle, result: ValidationResult) -> None:
+    def _validate_required_fields(
+        self, bundle: Bundle, result: ValidationResult
+    ) -> None:
         """Validate required fields are present."""
         if not bundle.name:
             result.add_error("Bundle must have a name")
@@ -103,11 +107,17 @@ class BundleValidator:
                 self._validate_module_entry(list_name, i, module, result)
 
     def _validate_module_entry(
-        self, list_name: str, index: int, module: dict[str, Any], result: ValidationResult
+        self,
+        list_name: str,
+        index: int,
+        module: dict[str, Any],
+        result: ValidationResult,
     ) -> None:
         """Validate a single module entry."""
         if not isinstance(module, dict):
-            result.add_error(f"{list_name}[{index}]: Must be a dict, got {type(module).__name__}")
+            result.add_error(
+                f"{list_name}[{index}]: Must be a dict, got {type(module).__name__}"
+            )
             return
 
         # Module must have module field
@@ -116,7 +126,9 @@ class BundleValidator:
 
         # Config must be dict if present
         if "config" in module and not isinstance(module["config"], dict):
-            result.add_error(f"{list_name}[{index}]: 'config' must be a dict, got {type(module['config']).__name__}")
+            result.add_error(
+                f"{list_name}[{index}]: 'config' must be a dict, got {type(module['config']).__name__}"
+            )
 
     def _validate_session(self, bundle: Bundle, result: ValidationResult) -> None:
         """Validate session configuration."""
@@ -125,24 +137,49 @@ class BundleValidator:
 
         # Session must be a dict
         if not isinstance(bundle.session, dict):
-            result.add_error(f"session: Must be a dict, got {type(bundle.session).__name__}")
+            result.add_error(
+                f"session: Must be a dict, got {type(bundle.session).__name__}"
+            )
             return
 
         # Validate known session fields
+        # orchestrator/context can be string (module ID) or dict (with module/source keys)
         orchestrator = bundle.session.get("orchestrator")
-        if orchestrator is not None and not isinstance(orchestrator, str):
-            result.add_error(f"session.orchestrator: Must be a string, got {type(orchestrator).__name__}")
+        if orchestrator is not None:
+            if isinstance(orchestrator, str):
+                pass  # Valid: simple module reference
+            elif isinstance(orchestrator, dict):
+                if "module" not in orchestrator and "source" not in orchestrator:
+                    result.add_error(
+                        "session.orchestrator: Dict must have 'module' or 'source' key"
+                    )
+            else:
+                result.add_error(
+                    f"session.orchestrator: Must be string or dict, got {type(orchestrator).__name__}"
+                )
 
         context = bundle.session.get("context")
-        if context is not None and not isinstance(context, str):
-            result.add_error(f"session.context: Must be a string, got {type(context).__name__}")
+        if context is not None:
+            if isinstance(context, str):
+                pass  # Valid: simple context reference
+            elif isinstance(context, dict):
+                if "module" not in context and "source" not in context:
+                    result.add_error(
+                        "session.context: Dict must have 'module' or 'source' key"
+                    )
+            else:
+                result.add_error(
+                    f"session.context: Must be string or dict, got {type(context).__name__}"
+                )
 
     def _validate_resources(self, bundle: Bundle, result: ValidationResult) -> None:
         """Validate resource references."""
         # Agents must be dict of dicts
         for name, agent in bundle.agents.items():
             if not isinstance(agent, dict):
-                result.add_error(f"agents.{name}: Must be a dict, got {type(agent).__name__}")
+                result.add_error(
+                    f"agents.{name}: Must be a dict, got {type(agent).__name__}"
+                )
 
         # Context paths should exist if base_path is set
         if bundle.base_path:
@@ -201,7 +238,9 @@ class BundleValidator:
         """
         result = self.validate_completeness(bundle)
         if not result.valid:
-            raise BundleValidationError(f"Bundle incomplete for mounting: {'; '.join(result.errors)}")
+            raise BundleValidationError(
+                f"Bundle incomplete for mounting: {'; '.join(result.errors)}"
+            )
 
 
 def validate_bundle(bundle: Bundle) -> ValidationResult:

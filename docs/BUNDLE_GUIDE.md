@@ -815,10 +815,12 @@ includes:
 
 **Merge rules**:
 - Later bundles override earlier ones
-- `session`, `providers`, `tools`, `hooks` are deep-merged by module ID
-- `agents` are merged by agent name
-- `spawn` is deep-merged (later overrides earlier)
-- Markdown instructions replace entirely (later wins)
+- `session`: deep-merged (nested dicts merged recursively, later wins for scalars)
+- `spawn`: deep-merged (later overrides earlier)
+- `providers`, `tools`, `hooks`: merged by module ID (configs for same module are deep-merged)
+- `agents`: merged by agent name (later wins)
+- `context`: accumulates with namespace prefix (each bundle contributes without collision)
+- Markdown instructions: replace entirely (later wins)
 
 ---
 

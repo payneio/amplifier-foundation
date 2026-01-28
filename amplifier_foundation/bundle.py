@@ -84,9 +84,10 @@ class Bundle:
         """Compose this bundle with others (later overrides earlier).
 
         Creates a new Bundle with merged configuration. For each section:
-        - session: deep merge (later overrides)
+        - session/spawn: deep merge (nested dicts merged, later wins for scalars)
         - providers/tools/hooks: merge by module ID
-        - agents/context: later overrides earlier
+        - agents: later overrides earlier (by agent name)
+        - context: accumulates with namespace prefix (each bundle contributes)
         - instruction: later replaces earlier
 
         Args:

@@ -100,7 +100,7 @@ md_files = find_files(Path("docs"), "**/*.md")
 | `io/` | `read_yaml`, `write_yaml`, `parse_frontmatter`, `read_with_retry`, `write_with_retry` | File I/O with cloud sync retry |
 | `dicts/` | `deep_merge`, `merge_module_lists`, `get_nested`, `set_nested` | Dict manipulation |
 | `paths/` | `parse_uri`, `normalize_path`, `find_files`, `find_bundle_root` | Path and URI handling |
-| `cache/` | `SimpleCache`, `DiskCache` | Caching with TTL support |
+| `cache/` | `SimpleCache`, `DiskCache` | In-memory and disk caching (apps can extend with TTL) |
 
 ### Reference Content (Co-located)
 
