@@ -115,144 +115,20 @@ For implementation details beyond the docs, you may read these source files if n
 
 ---
 
-## The Thin Bundle Pattern
+## Bundle Composition Patterns
 
-**This is the most important pattern to teach.**
+**For detailed patterns with examples, see @foundation:docs/BUNDLE_GUIDE.md.**
 
-### The Problem
+Key patterns to teach (details in BUNDLE_GUIDE.md):
 
-When creating bundles that include foundation, developers often **redeclare things foundation already provides**:
+| Pattern | Purpose | Key Principle |
+|---------|---------|---------------|
+| **Thin Bundle** | Don't redeclare foundation's tools/session | Only declare what YOU uniquely provide |
+| **Behavior Pattern** | Reusable capability packages | Package agents + context together |
+| **Context De-duplication** | Single source of truth | Use `context/` files, reference via @mentions |
+| **Directory Conventions** | Standardized layouts | See BUNDLE_GUIDE.md "Directory Conventions" |
 
-```yaml
-# ❌ BAD: Fat bundle that duplicates foundation
-includes:
-  - bundle: foundation
-
-session:              # Foundation already defines this!
-  orchestrator:
-    module: loop-streaming
-    source: git+https://...
-
-tools:                # Foundation already has these!
-  - module: tool-filesystem
-    source: git+https://...
-```
-
-### The Solution
-
-A **thin bundle** only declares what it uniquely provides:
-
-```yaml
-# ✅ GOOD: Thin bundle
----
-bundle:
-  name: my-capability
-  version: 1.0.0
-
-includes:
-  - bundle: git+https://github.com/microsoft/amplifier-foundation@main
-  - bundle: my-capability:behaviors/my-capability
----
-
-# My Capability
-
-@my-capability:context/instructions.md
-
----
-
-@foundation:context/shared/common-system-base.md
-```
-
-**Everything else comes from foundation.**
-
----
-
-## The Behavior Pattern
-
-A **behavior** packages agents + context (and optionally tools/hooks) for reusability.
-
-### Structure
-
-```yaml
-# behaviors/my-capability.yaml
-bundle:
-  name: my-capability-behavior
-  version: 1.0.0
-  description: Adds X capability
-
-agents:
-  include:
-    - my-capability:agent-one
-    - my-capability:agent-two
-
-context:
-  include:
-    - my-capability:context/instructions.md
-```
-
-### Benefits
-
-- **Reusability**: Add to any bundle
-- **Modularity**: Separate concerns cleanly
-- **Composition**: Mix and match behaviors
-
----
-
-## Context De-duplication
-
-**Consolidate instructions into single files.**
-
-### The Problem
-
-Inline instructions cause:
-- Duplication if behavior needs them too
-- Large bundle.md files
-- Harder reuse across bundles
-
-### The Solution
-
-Create `context/instructions.md`:
-
-```markdown
-# My Capability Instructions
-
-You have access to the my-capability tool...
-
-## Usage
-[Detailed instructions]
-```
-
-Reference from behavior AND bundle.md with `@my-capability:context/instructions.md`.
-
----
-
-## Bundle Directory Structure
-
-### Thin Bundle (Recommended)
-
-```
-my-bundle/
-├── bundle.md                 # Thin: includes + context refs only
-├── behaviors/
-│   └── my-capability.yaml    # Reusable behavior
-├── agents/                   # Agent definitions
-│   ├── agent-one.md
-│   └── agent-two.md
-├── context/
-│   └── instructions.md       # Consolidated instructions
-├── docs/                     # Additional documentation
-├── README.md
-└── LICENSE
-```
-
-### Exemplar: amplifier-bundle-recipes
-
-See [amplifier-bundle-recipes](https://github.com/microsoft/amplifier-bundle-recipes) - the canonical example:
-
-- **14 lines of YAML** in bundle.md
-- Behavior pattern for the capability
-- Context de-duplication
-- Local module when needed
+**Canonical example**: [amplifier-bundle-recipes](https://github.com/microsoft/amplifier-bundle-recipes) - 14 lines of YAML, behavior pattern, context de-duplication.
 
 ---
 
@@ -360,13 +236,9 @@ See @foundation:docs/BUNDLE_GUIDE.md for complete details.
 
 ## Bundle Concepts
 
-### Bundles (The Mechanism)
+**For core terminology and structural concepts, see @foundation:docs/CONCEPTS.md.**
 
-Bundles are the mechanism for combining and composing Amplifier ecosystem components:
-- **Modules**: Tools, providers, hooks, orchestrators, context managers
-- **Context files**: Instructions, documentation, guidance
-- **Agents**: Specialized personas with focused context/roles
-- **Other bundles**: Via `includes:` for composition
+This section covers practical implementation details for the agent's work.
 
 ### Full Bundles vs Behavior Bundles (Convention)
 

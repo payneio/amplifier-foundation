@@ -4,19 +4,12 @@ You have access to Amplifier's bundle composition system.
 
 ## Core Concepts
 
-**Bundles** are the mechanism for combining and composing Amplifier ecosystem components:
-- Modules (tools, providers, hooks, orchestrators, context managers)
-- Context files (instructions, documentation)
-- Agents (specialized personas with focused context)
-- Other bundles (composition/inheritance)
+**For complete terminology**: See `foundation:docs/CONCEPTS.md` for bundle definitions and structural concepts (root bundles, nested bundles, namespace registration).
 
-**Behavior bundles** are a convention (not code-enforced) for creating partial bundles that add complete capabilities to full bundles. They package related agents, modules, and context together for reuse.
-
-**Context sinks** are agents that carry heavy documentation. Delegating work to them:
-- Frees the parent session from token consumption
-- Lets sub-sessions burn context doing work
-- Returns concise results without bloating the main session
-- Critical strategy for longer-running session success
+**Key terms** (details in CONCEPTS.md):
+- **Bundles** = mechanism for composing modules, context, agents, and other bundles
+- **Behavior bundles** = convention for reusable capability packages (agents + context)
+- **Context sinks** = agents carrying heavy docs, freeing parent sessions from token consumption
 
 ## Required: Delegate to Expert
 
