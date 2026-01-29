@@ -338,17 +338,21 @@ steps:
 
       **Composition Analysis Tasks:**
 
-      1. **Root Bundle + Behavior DRY Pattern**:
-         If repo has a root bundle AND behaviors/, does the root include its own behavior?
-         This is the recommended pattern for DRY composition.
+      1. **Root Bundle + Behavior DRY Pattern** (RECOMMENDED, not required):
+         If repo has a root bundle AND behaviors/, it's RECOMMENDED that the root include
+         its own behavior for DRY composition. This is a convention for maintainability,
+         not a hard requirement.
 
-      2. **Standalone Bundle Completeness**:
-         For each bundle in /bundles/, can it actually be used standalone?
-         Check if it includes necessary base bundles (like foundation or the repo's root).
+      2. **Standalone Bundle Session Configuration**:
+         For each bundle in /bundles/, check if it's intended as a standalone entry point.
+         If so, it needs session.orchestrator and session.context (directly OR via includes).
+         If the bundle lacks session configuration, it may be intended for composition -
+         in which case it should be in /behaviors/ instead.
 
-      3. **Provider Bundle Isolation**:
-         Are provider configurations properly isolated in /providers/?
-         Root bundle shouldn't hardcode providers.
+      3. **Provider Bundle Isolation** (RECOMMENDED, not required):
+         Provider configurations are typically isolated in /providers/ for reusability.
+         Root bundles typically don't hardcode providers, but this is a convention for
+         flexibility, not a hard requirement.
 
       4. **Agent Accessibility**:
          Are agents in /agents/ included by behaviors or root bundle?

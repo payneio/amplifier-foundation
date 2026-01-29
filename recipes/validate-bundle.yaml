@@ -390,9 +390,10 @@ steps:
 
       **Key Conventions to Check:**
 
-      1. **Root Bundle DRY Pattern**: If this is a root bundle with behaviors/,
-         does bundle.md include its own behavior? Look for pattern like:
-         `includes: - bundle: <namespace>:behaviors/<capability>`
+      1. **Root Bundle DRY Pattern** (RECOMMENDED, not required): If this is a root bundle
+         with behaviors/, it's RECOMMENDED that bundle.md include its own behavior for DRY.
+         Look for pattern like: `includes: - bundle: <namespace>:behaviors/<capability>`
+         This is a convention for maintainability, not a hard requirement.
 
       2. **Agent Path Format**: Agent includes should use `namespace:agent-name` NOT
          `namespace:agents/agent-name.md`. The agents/ directory is implied.
@@ -401,14 +402,17 @@ steps:
       3. **Context Organization**: Large inline instructions (>50 lines in markdown body)
          should be moved to `context/` and referenced via `@namespace:context/file.md`.
 
-      4. **Provider Isolation**: Provider configurations should be in `providers/` not
-         inline in the main bundle (unless this is a small single-purpose bundle).
+      4. **Provider Isolation** (RECOMMENDED, not required): Provider configurations are
+         typically in `providers/` for reusability, but can be inline if the bundle is
+         self-contained. This is a convention, not a hard requirement.
 
       5. **Behavior Completeness**: Behavior bundles should add at least one agent OR
          context file - empty behaviors serve no purpose.
 
-      6. **Standalone Bundle Independence**: Bundles in `/bundles/` should be usable
-         standalone (typically include root bundle + provider choice).
+      6. **Standalone Bundle Session Configuration**: Bundles in `/bundles/` that are
+         intended as standalone entry points need session.orchestrator and session.context
+         (either defined directly OR via includes). If the bundle is intended for
+         composition into other bundles, it should be in `/behaviors/` instead.
 
       **Output Format:**
       For each convention, provide:
@@ -458,14 +462,12 @@ steps:
       5. **Agents without descriptions**: Agents need `meta.description` for discoverability.
          If this bundle has agents, flag any missing descriptions.
 
-      6. **context.include vs @mentions**: In bundle.md, main instructions should use @mentions
-         in markdown body. The `context.include` YAML section is for behaviors.
-
-      7. **Circular includes**: Bundle A includes B which includes A.
+      6. **Circular includes**: Bundle A includes B which includes A.
          (Already checked structurally, but note if detected)
 
-      8. **Inline providers in root**: Root bundles usually shouldn't hardcode providers -
-         let composing apps or `/bundles/` variants handle provider choice.
+      7. **Inline providers in root** (CONVENTION, not error): Root bundles typically
+         don't hardcode providers - letting composing apps or `/bundles/` variants handle
+         provider choice is recommended for flexibility, but not required.
 
       **Read the actual bundle file to check these:**
       Use the filesystem tool to read {{bundle_path}} and any referenced files.
