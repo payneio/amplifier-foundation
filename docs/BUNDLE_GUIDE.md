@@ -201,6 +201,48 @@ context:
 - References consolidated context file
 - Can be included by foundation OR any other bundle
 
+### Agent Definition Patterns: Include vs Inline
+
+**Both patterns are fully supported** by the code. Choose based on your needs:
+
+#### Pattern 1: Include (Recommended for most cases)
+
+```yaml
+agents:
+  include:
+    - my-bundle:my-agent      # Loads agents/my-agent.md
+```
+
+**Use when**: Agent is self-contained with its own instructions in a separate `.md` file.
+
+#### Pattern 2: Inline (Valid for tool-scoped agents)
+
+```yaml
+agents:
+  my-agent:
+    description: "Agent with bundle-specific tool access"
+    instructions: my-bundle:agents/my-agent.md
+    tools:
+      - module: tool-special    # This agent gets specific tools
+        source: ./modules/tool-special
+```
+
+**Use when**: Agent needs bundle-specific tool configurations that differ from the parent bundle.
+
+#### When to Use Each
+
+| Scenario | Pattern | Why |
+|----------|---------|-----|
+| Standard agent with own instructions | Include | Cleaner separation, context sink pattern |
+| Agent needs specific tools | Inline | Can specify `tools:` for just this agent |
+| Agent reused across bundles | Include | Separate file is more portable |
+| Agent tightly coupled to bundle | Inline | Keep definition with bundle config |
+
+**Key insight**: The code in `bundle.py:_parse_agents()` explicitly handles both patterns:
+> "Handles both include lists and direct definitions."
+
+Neither pattern is deprecated. Both are intentional design choices for different use cases.
+
 ---
 
 ## Context De-duplication
