@@ -78,12 +78,12 @@ class DelegateTool:
     """Delegate tasks to specialized agents via sub-sessions.
 
     This tool provides fine-grained control over context inheritance
-    and supports seamless session resumption with short ID prefixes.
+    and supports session resumption using full session IDs.
 
     Key improvements over task tool:
     - Two-parameter context: depth (how much) and scope (which content)
-    - Short session ID resolution (6+ characters)
     - Fixed tool inheritance: agent declarations always honored
+    - Returns short_id for human reference (resume requires full session_id)
     """
 
     name = "delegate"
@@ -300,74 +300,6 @@ Agent usage notes:
             {"name": name, "description": cfg.get("description", "No description")}
             for name, cfg in sorted_agents
         ]
-
-    async def _resolve_short_session_id(self, prefix: str) -> str:
-        """Resolve short prefix (child_span prefix) to full session ID.
-
-        The short_id returned by delegate is the first 8 chars of the child_span,
-        NOT the session_id prefix. Session IDs have format:
-            {parent_session_id}-{child_span}_{agent_name}
-
-        This method searches for sessions where the child_span starts with the prefix.
-
-        Args:
-            prefix: Child span prefix (minimum 6 characters)
-
-        Returns:
-            Full session ID
-
-        Raises:
-            ValueError: If prefix is too short, no matches, or ambiguous
-        """
-        # Already full session ID format (contains underscore with agent name)
-        if "_" in prefix and len(prefix) >= 36:
-            return prefix
-
-        if len(prefix) < 6:
-            raise ValueError("Session ID prefix must be at least 6 characters")
-
-        # Use session.list capability to find matches
-        list_fn = self.coordinator.get_capability("session.list")
-        if list_fn is None:
-            # If no list capability, assume prefix is valid and let resume fail
-            logger.warning("session.list capability not available, using prefix as-is")
-            return prefix
-
-        try:
-            sessions = await list_fn()
-
-            # Search for child_span match in session IDs
-            # Session ID format: {parent}-{child_span}_{agent}
-            # The child_span is 16 hex chars before the underscore
-            matches = []
-            for s in sessions:
-                session_id = s.get("session_id", "")
-                # Extract child_span: find the 16 chars before the last underscore
-                if "_" in session_id:
-                    # Split off agent name, then get last 16 chars before underscore
-                    base = session_id.rsplit("_", 1)[0]
-                    if "-" in base:
-                        # child_span is after the last dash
-                        child_span = base.rsplit("-", 1)[-1]
-                        if child_span.startswith(prefix):
-                            matches.append(session_id)
-
-            if len(matches) == 0:
-                raise ValueError(f"No session found matching prefix '{prefix}'")
-            elif len(matches) > 1:
-                raise ValueError(
-                    f"Ambiguous prefix '{prefix}' matches {len(matches)} sessions: "
-                    f"{[m[:12] + '...' for m in matches[:3]]}"
-                )
-            else:
-                return matches[0]
-
-        except Exception as e:
-            if "No session found" in str(e) or "Ambiguous prefix" in str(e):
-                raise
-            # If list fails for other reasons, try with prefix as-is
-            logger.warning(f"session.list failed ({e}), using prefix as-is")
-            return prefix
 
     async def _get_parent_messages(self) -> list[dict[str, Any]] | None:
         """Get all messages from parent session.
@@ -947,8 +879,8 @@ Agent usage notes:
         parent_session_id = self.coordinator.session_id
 
         try:
-            # Resolve short session ID to full ID
-            full_session_id = await self._resolve_short_session_id(session_id)
+            # Use session_id as-is (no short ID resolution - LLMs can handle full IDs)
+            full_session_id = session_id
 
             # Emit delegate:agent_resumed event
             if hooks:
@@ -957,9 +889,6 @@ Agent usage notes:
                     {
                         "session_id": full_session_id,
                         "parent_session_id": parent_session_id,
-                        "original_prefix": session_id
-                        if session_id != full_session_id
-                        else None,
                     },
                 )
 
