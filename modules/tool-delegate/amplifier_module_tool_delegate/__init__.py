@@ -103,9 +103,10 @@ class DelegateTool:
         settings = config.get("settings", {})
 
         # Feature flags
-        self.self_delegation_enabled = features.get("self_delegation", {}).get(
-            "enabled", True
-        )
+        self_delegation_config = features.get("self_delegation", {})
+        self.self_delegation_enabled = self_delegation_config.get("enabled", True)
+        self.max_self_delegation_depth = self_delegation_config.get("max_depth", 3)
+
         self.session_resume_enabled = features.get("session_resume", {}).get(
             "enabled", True
         )
@@ -720,6 +721,21 @@ Agent usage notes:
                     success=False,
                     error={"message": "Self-delegation is disabled"},
                 )
+
+            # Check recursion depth limit
+            current_depth = (
+                self.coordinator.get_capability("self_delegation_depth") or 0
+            )
+            if current_depth >= self.max_self_delegation_depth:
+                return ToolResult(
+                    success=False,
+                    error={
+                        "message": f"Self-delegation depth limit ({self.max_self_delegation_depth}) exceeded. "
+                        f"Current depth: {current_depth}. "
+                        "Break the recursion by delegating to a named agent or completing the task.",
+                        "code": "SELF_DELEGATION_DEPTH_EXCEEDED",
+                    },
+                )
             # Self-delegation uses parent's bundle - spawn capability handles it
             pass
         elif ":" in agent_name:
@@ -805,6 +821,16 @@ Agent usage notes:
                 orchestrator_config = orch_config
                 logger.debug(f"Inheriting orchestrator config: {orchestrator_config}")
 
+            # Calculate self-delegation depth for child session
+            # Named agents reset to 0, self-delegation increments
+            if agent_name == "self":
+                current_depth = (
+                    self.coordinator.get_capability("self_delegation_depth") or 0
+                )
+                child_self_delegation_depth = current_depth + 1
+            else:
+                child_self_delegation_depth = 0  # Named agents start fresh chain
+
             # Spawn agent sub-session
             result = await spawn_fn(
                 agent_name=agent_name,
@@ -816,6 +842,7 @@ Agent usage notes:
                 hook_inheritance=hook_inheritance,
                 orchestrator_config=orchestrator_config,
                 provider_preferences=provider_preferences,
+                self_delegation_depth=child_self_delegation_depth,
             )
 
             # Emit delegate:agent_completed event
