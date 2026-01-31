@@ -302,10 +302,16 @@ Agent usage notes:
         ]
 
     async def _resolve_short_session_id(self, prefix: str) -> str:
-        """Resolve short prefix to full session ID.
+        """Resolve short prefix (child_span prefix) to full session ID.
+
+        The short_id returned by delegate is the first 8 chars of the child_span,
+        NOT the session_id prefix. Session IDs have format:
+            {parent_session_id}-{child_span}_{agent_name}
+
+        This method searches for sessions where the child_span starts with the prefix.
 
         Args:
-            prefix: Session ID prefix (minimum 6 characters)
+            prefix: Child span prefix (minimum 6 characters)
 
         Returns:
             Full session ID
@@ -313,8 +319,8 @@ Agent usage notes:
         Raises:
             ValueError: If prefix is too short, no matches, or ambiguous
         """
-        # Already full UUID format (36 chars with dashes, or longer with suffix)
-        if len(prefix) >= 36:
+        # Already full session ID format (contains underscore with agent name)
+        if "_" in prefix and len(prefix) >= 36:
             return prefix
 
         if len(prefix) < 6:
@@ -329,11 +335,22 @@ Agent usage notes:
 
         try:
             sessions = await list_fn()
-            matches = [
-                s["session_id"]
-                for s in sessions
-                if s.get("session_id", "").startswith(prefix)
-            ]
+
+            # Search for child_span match in session IDs
+            # Session ID format: {parent}-{child_span}_{agent}
+            # The child_span is 16 hex chars before the underscore
+            matches = []
+            for s in sessions:
+                session_id = s.get("session_id", "")
+                # Extract child_span: find the 16 chars before the last underscore
+                if "_" in session_id:
+                    # Split off agent name, then get last 16 chars before underscore
+                    base = session_id.rsplit("_", 1)[0]
+                    if "-" in base:
+                        # child_span is after the last dash
+                        child_span = base.rsplit("-", 1)[-1]
+                        if child_span.startswith(prefix):
+                            matches.append(session_id)
 
             if len(matches) == 0:
                 raise ValueError(f"No session found matching prefix '{prefix}'")
@@ -882,13 +899,16 @@ Agent usage notes:
                 )
 
             # Return output with session_id for multi-turn capability
+            # Use child_span[:8] as short_id - this is unique per child session
+            # (session_id[:8] would return parent's prefix, causing collisions)
             session_id_result = result["session_id"]
             return ToolResult(
                 success=True,
                 output={
                     "response": result["output"],
                     "session_id": session_id_result,
-                    "short_id": session_id_result[:8],
+                    "short_id": child_span[:8],
+                    "child_span": child_span,  # Full span for precise matching
                     "agent": agent_name,
                     "turn_count": result.get("turn_count", 1),
                 },
