@@ -1,8 +1,14 @@
 # validate-bundle-repo.yaml
-# Repository-Wide Bundle Validator Recipe v2.0.1
+# Repository-Wide Bundle Validator Recipe v2.1.0
 # Validates an entire bundle repository against structural requirements and conventions
 #
 # CHANGELOG:
+# v2.1.0 - Added Python packaging validation phases
+#        - Phase 0.5: packaging-check (pyproject.toml force-includes)
+#        - Phase 0.7: build-check (dry-run pip wheel)
+#        - Catches missing directories referenced in build config
+#        - Prevents "renamed directory but forgot pyproject.toml" bugs
+#
 # v2.0.1 - Fixed undefined variable error when foundation not available
 #        - quality-classification now handles skipped individual_validation
 #        - Returns critical quality_level with appropriate messaging
@@ -28,20 +34,22 @@
 # 3. No orphan agents (all agents referenced by some bundle)
 # 4. No broken cross-bundle references (includes resolve)
 # 5. Consistent namespace across bundles (if multiple bundles)
+# 6. Python packaging builds successfully (if pyproject.toml present)
 #
 # QUALITY LEVELS:
 # - good: All bundles load, no errors, no orphans, proper structure
 # - polish: All load but has warnings (missing descriptions, conventions)
 # - needs_work: Orphan agents, missing root, convention issues
-# - critical: Any bundle fails to load
+# - critical: Any bundle fails to load OR Python package fails to build
 #
 # This recipe:
 # 1. Discovers all bundles in a repo (root, behaviors, standalone, providers)
-# 2. Validates each bundle individually
-# 3. Classifies overall quality (DETERMINISTIC - before LLM)
-# 4. Quick-approves clean repos OR runs detailed analysis
-# 5. Validates repo composition (conditional on quality)
-# 6. Produces a comprehensive repo-level report
+# 2. Validates Python packaging (pyproject.toml force-includes, build check)
+# 3. Validates each bundle individually
+# 4. Classifies overall quality (DETERMINISTIC - before LLM)
+# 5. Quick-approves clean repos OR runs detailed analysis
+# 6. Validates repo composition (conditional on quality)
+# 7. Produces a comprehensive repo-level report
 #
 # Usage:
 #   amplifier tool invoke recipes operation=execute \
@@ -52,11 +60,16 @@ name: validate-bundle-repo
 description: |
   Validates an entire Amplifier bundle repository including:
   - Discovery of all bundle files (root, behaviors, standalone, providers)
+  - Python packaging validation (pyproject.toml force-includes, build check)
   - Individual validation of each bundle via BundleRegistry
   - Deterministic quality classification with explicit PASS thresholds
   - Quick-approval path for clean repos (no unnecessary LLM analysis)
   - Repository composition analysis (do pieces fit together correctly?)
   - Convention compliance across the whole repo
+  
+  **v2.1.0 Improvements:**
+  - Python packaging validation (catches pyproject.toml mismatches)
+  - Build dry-run check (catches hatchling/setuptools errors early)
   
   **v2.0.0 Improvements:**
   - Deterministic quality classification before LLM analysis
@@ -66,9 +79,9 @@ description: |
   - Optional agent validation integration
   
   For single bundle validation, use validate-bundle.yaml instead.
-version: "2.0.1"
+version: "2.1.0"
 author: "Amplifier Foundation Team"
-tags: ["bundle", "validation", "quality", "conventions", "repository"]
+tags: ["bundle", "validation", "quality", "conventions", "repository", "packaging"]
 
 context:
   repo_path: ""  # Required: Path to bundle repository root
@@ -131,6 +144,239 @@ steps:
     output: "env_check"
     parse_json: true
     timeout: 180
+
+  # ============================================================================
+  # PHASE 0.5: Packaging Consistency Check
+  # Verify pyproject.toml force-includes reference existing directories
+  # This catches the "renamed directory but forgot pyproject.toml" bug
+  # ============================================================================
+
+  - id: "packaging-check"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      import sys
+      from pathlib import Path
+
+      repo_path = "{{repo_path}}"
+
+      result = {
+          "phase": "packaging_check",
+          "has_pyproject": False,
+          "force_includes_checked": 0,
+          "errors": [],
+          "warnings": []
+      }
+
+      pyproject_path = Path(repo_path) / "pyproject.toml"
+
+      if not pyproject_path.exists():
+          result["skipped"] = True
+          result["passed"] = True
+          result["reason"] = "No pyproject.toml (not a Python package bundle)"
+          print(json.dumps(result))
+          sys.exit(0)
+
+      result["has_pyproject"] = True
+
+      # Python 3.11+ has tomllib built-in
+      try:
+          import tomllib
+      except ImportError:
+          # Fallback for older Python
+          try:
+              import tomli as tomllib
+          except ImportError:
+              result["warnings"].append({
+                  "type": "missing_toml_parser",
+                  "message": "Cannot parse pyproject.toml - tomllib/tomli not available"
+              })
+              result["passed"] = True  # Can't check, don't fail
+              print(json.dumps(result))
+              sys.exit(0)
+
+      try:
+          with open(pyproject_path, "rb") as f:
+              config = tomllib.load(f)
+      except Exception as e:
+          result["errors"].append({
+              "type": "toml_parse_error",
+              "message": f"Failed to parse pyproject.toml: {e}",
+              "severity": "ERROR"
+          })
+          result["passed"] = False
+          print(json.dumps(result))
+          sys.exit(0)
+
+      # Check hatchling force-includes
+      force_includes = (config.get("tool", {})
+                             .get("hatch", {})
+                             .get("build", {})
+                             .get("targets", {})
+                             .get("wheel", {})
+                             .get("force-include", {}))
+
+      for source_path, dest_path in force_includes.items():
+          result["force_includes_checked"] += 1
+          full_path = Path(repo_path) / source_path
+
+          if not full_path.exists():
+              result["errors"].append({
+                  "type": "missing_force_include",
+                  "source": source_path,
+                  "destination": dest_path,
+                  "message": f"pyproject.toml force-include references non-existent path: {source_path}",
+                  "severity": "CRITICAL",
+                  "fix": f"Either create '{source_path}' or remove/update the force-include entry"
+              })
+
+      # Check setuptools package-data or data-files if present
+      package_data = config.get("tool", {}).get("setuptools", {}).get("package-data", {})
+      for package, patterns in package_data.items():
+          for pattern in patterns:
+              # Basic check - if it's a specific path (not a glob), verify it exists
+              if "*" not in pattern and "?" not in pattern:
+                  full_path = Path(repo_path) / pattern
+                  if not full_path.exists():
+                      result["warnings"].append({
+                          "type": "missing_package_data",
+                          "package": package,
+                          "pattern": pattern,
+                          "message": f"package-data references potentially missing path: {pattern}"
+                      })
+
+      result["passed"] = len(result["errors"]) == 0
+      print(json.dumps(result))
+      EOF
+    output: "packaging_check"
+    parse_json: true
+    timeout: 30
+    depends_on: ["environment-check"]
+
+  # ============================================================================
+  # PHASE 0.7: Build Dry-Run Check
+  # Actually attempt a dry-run pip install to catch build issues
+  # Only runs if pyproject.toml exists
+  # ============================================================================
+
+  - id: "build-check"
+    type: "bash"
+    condition: "{{packaging_check.has_pyproject}} == true"
+    command: |
+      python3 << 'EOF'
+      import json
+      import subprocess
+      import sys
+      import tempfile
+      from pathlib import Path
+
+      repo_path = "{{repo_path}}"
+
+      result = {
+          "phase": "build_check",
+          "build_tested": False,
+          "errors": [],
+          "warnings": []
+      }
+
+      pyproject_path = Path(repo_path) / "pyproject.toml"
+      if not pyproject_path.exists():
+          result["skipped"] = True
+          result["passed"] = True
+          result["reason"] = "No pyproject.toml"
+          print(json.dumps(result))
+          sys.exit(0)
+
+      # Try a dry-run build using pip wheel with --no-build-isolation for speed
+      # This catches hatchling/setuptools build errors without actually installing
+      try:
+          # Create a temp directory for the wheel output
+          with tempfile.TemporaryDirectory() as tmpdir:
+              # Try pip wheel which does a full build check
+              proc = subprocess.run(
+                  [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
+                   "-w", tmpdir, repo_path],
+                  capture_output=True,
+                  text=True,
+                  timeout=120,
+                  cwd=repo_path
+              )
+
+              if proc.returncode != 0:
+                  # Extract relevant error from output
+                  error_output = proc.stderr or proc.stdout
+
+                  # Look for common patterns
+                  if "FileNotFoundError" in error_output or "No such file or directory" in error_output:
+                      result["errors"].append({
+                          "type": "build_missing_file",
+                          "message": "Build failed due to missing file",
+                          "details": error_output[-2000:],  # Last 2000 chars
+                          "severity": "CRITICAL"
+                      })
+                  elif "force-include" in error_output.lower():
+                      result["errors"].append({
+                          "type": "build_force_include_error",
+                          "message": "Build failed due to force-include configuration",
+                          "details": error_output[-2000:],
+                          "severity": "CRITICAL"
+                      })
+                  else:
+                      result["errors"].append({
+                          "type": "build_error",
+                          "message": "Package build failed",
+                          "details": error_output[-2000:],
+                          "severity": "CRITICAL"
+                      })
+              else:
+                  result["build_tested"] = True
+                  result["build_success"] = True
+
+      except subprocess.TimeoutExpired:
+          result["warnings"].append({
+              "type": "build_timeout",
+              "message": "Build check timed out (120s) - may indicate complex build"
+          })
+      except FileNotFoundError:
+          # pip not available in expected way
+          result["warnings"].append({
+              "type": "build_tools_unavailable",
+              "message": "Could not run build check - pip not available"
+          })
+      except Exception as e:
+          result["warnings"].append({
+              "type": "build_check_error",
+              "message": f"Build check encountered error: {e}"
+          })
+
+      result["passed"] = len(result["errors"]) == 0
+      print(json.dumps(result))
+      EOF
+    output: "build_check"
+    parse_json: true
+    timeout: 180
+    depends_on: ["packaging-check"]
+
+  # Set default for build_check if packaging check skipped (no pyproject.toml)
+  - id: "set-default-build-check"
+    type: "bash"
+    condition: "{{packaging_check.has_pyproject}} != true"
+    command: |
+      python3 << 'EOF'
+      import json
+      result = {
+          "phase": "build_check",
+          "skipped": True,
+          "passed": True,
+          "reason": "No pyproject.toml - not a Python package"
+      }
+      print(json.dumps(result))
+      EOF
+    output: "build_check"
+    parse_json: true
+    timeout: 10
+    depends_on: ["packaging-check"]
 
   # ============================================================================
   # PHASE 1: Repository Discovery
@@ -229,7 +475,7 @@ steps:
     output: "discovery_results"
     parse_json: true
     timeout: 60
-    depends_on: ["environment-check"]
+    depends_on: ["packaging-check", "build-check", "set-default-build-check"]
 
   # ============================================================================
   # PHASE 2: Individual Bundle Validation
@@ -371,6 +617,7 @@ steps:
   # PHASE 2.5: Quality Classification (Deterministic)
   # Classify overall repo quality to determine if LLM analysis is needed
   # This is the key v2.0.0 addition - explicit PASS thresholds
+  # Updated in v2.1.0 to include packaging errors
   # ============================================================================
 
   - id: "quality-classification"
@@ -384,6 +631,14 @@ steps:
       # Parse results as JSON
       individual = json.loads('''{{individual_validation}}''')
       discovery = json.loads('''{{discovery_results}}''')
+      packaging = json.loads('''{{packaging_check}}''')
+      
+      # Handle build_check which may be from conditional step
+      build_check_raw = '''{{build_check}}'''
+      try:
+          build = json.loads(build_check_raw)
+      except (json.JSONDecodeError, ValueError):
+          build = {"passed": True, "skipped": True, "reason": "build check output not available"}
 
       # Handle case where validation was skipped (e.g., foundation not available)
       if individual.get("skipped", False):
@@ -405,6 +660,7 @@ steps:
                   "message": individual.get("reason", "Individual bundle validation was skipped"),
                   "severity": "critical"
               }],
+              "packaging_issues": [],
               "message": f"⚠️ Bundle validation could not run: {individual.get('reason', 'unknown reason')}"
           }
           print(json.dumps(result))
@@ -416,6 +672,7 @@ steps:
       # 2. Has proper structure (root bundle OR behaviors/bundles dirs)
       # 3. No orphan agents (if agents/ exists, they're referenced)
       # 4. Consistent namespace (not strictly enforced, but checked)
+      # 5. Python packaging builds successfully (if pyproject.toml present)
 
       def classify_bundle(bundle: dict) -> dict:
           """Classify a single bundle's quality level."""
@@ -457,7 +714,8 @@ steps:
               },
               "quality_level": "good",
               "requires_llm_analysis": False,
-              "structural_issues": []
+              "structural_issues": [],
+              "packaging_issues": []
           }
           
           # Classify each bundle
@@ -490,9 +748,31 @@ steps:
                   "severity": "needs_work"
               })
           
+          # Check packaging errors (v2.1.0)
+          if not packaging.get("passed", True):
+              for error in packaging.get("errors", []):
+                  results["packaging_issues"].append({
+                      "type": error.get("type", "packaging_error"),
+                      "message": error.get("message", "Unknown packaging error"),
+                      "severity": "critical",
+                      "fix": error.get("fix", "Check pyproject.toml configuration")
+                  })
+              results["summary"]["critical"] += 1
+          
+          # Check build errors (v2.1.0)
+          if not build.get("passed", True):
+              for error in build.get("errors", []):
+                  results["packaging_issues"].append({
+                      "type": error.get("type", "build_error"),
+                      "message": error.get("message", "Unknown build error"),
+                      "severity": "critical",
+                      "details": error.get("details", "")[:500]  # Truncate long details
+                  })
+              results["summary"]["critical"] += 1
+          
           # Determine overall quality level
           # Priority: critical > needs_work > polish > good
-          if results["summary"]["critical"] > 0:
+          if results["summary"]["critical"] > 0 or len(results["packaging_issues"]) > 0:
               results["quality_level"] = "critical"
               results["requires_llm_analysis"] = True
           elif results["summary"]["needs_work"] > 0 or len([i for i in results["structural_issues"] if i["severity"] == "needs_work"]) > 0:
@@ -510,13 +790,17 @@ steps:
           # Provide summary message
           total = results["summary"]["total"]
           good = results["summary"]["good"]
+          pkg_issues = len(results["packaging_issues"])
           
           if results["quality_level"] == "good":
               results["message"] = f"✅ All {total} bundles meet quality thresholds. No further analysis needed."
           else:
               not_good = total - good
-              issues = len(results["structural_issues"])
-              results["message"] = f"⚠️ {not_good}/{total} bundles and {issues} structural issues need attention."
+              struct_issues = len(results["structural_issues"])
+              if pkg_issues > 0:
+                  results["message"] = f"🚨 {pkg_issues} packaging issues, {not_good}/{total} bundles, and {struct_issues} structural issues need attention."
+              else:
+                  results["message"] = f"⚠️ {not_good}/{total} bundles and {struct_issues} structural issues need attention."
           
           print(json.dumps(results))
 
@@ -607,6 +891,16 @@ steps:
       {{discovery_results}}
       ```
 
+      **Packaging Check:**
+      ```json
+      {{packaging_check}}
+      ```
+
+      **Build Check:**
+      ```json
+      {{build_check}}
+      ```
+
       **Individual Validation Summary:**
       - Total bundles: {{individual_validation.summary.total}}
       - Passed: {{individual_validation.summary.passed}}
@@ -615,8 +909,9 @@ steps:
 
       Provide a concise approval noting:
       1. ✅ Confirm all bundles load and meet quality standards
-      2. What's done well (patterns worth preserving)
-      3. Any optional polish suggestions (NOT requirements - bundles are already good)
+      2. ✅ Confirm Python packaging is valid (if applicable)
+      3. What's done well (patterns worth preserving)
+      4. Any optional polish suggestions (NOT requirements - bundles are already good)
 
       Keep the response brief - this is the fast-track approval path.
       
@@ -659,6 +954,16 @@ steps:
       {{discovery_results}}
       ```
 
+      **Packaging Check:**
+      ```json
+      {{packaging_check}}
+      ```
+
+      **Build Check:**
+      ```json
+      {{build_check}}
+      ```
+
       **Individual Bundle Validation:**
       ```json
       {{individual_validation}}
@@ -682,6 +987,8 @@ steps:
       - Broken includes/references that prevent loading
       - Orphan agents that are never used
       - Structural issues that would confuse users
+      - **Python packaging errors (pyproject.toml force-includes referencing missing directories)**
+      - **Build failures (hatchling/setuptools configuration issues)**
 
       **Reference Documentation:**
       Review these for conventions:
@@ -718,6 +1025,12 @@ steps:
          Do includes between bundles resolve correctly?
          Check for broken references or incorrect paths.
 
+      7. **Python Packaging Consistency** (v2.1.0):
+         If pyproject.toml exists, verify:
+         - All force-include paths exist on disk
+         - Directory renames are reflected in build config
+         - Package data references are valid
+
       **Output Format:**
       For each analysis area:
       - **Finding**: What you observed
@@ -753,6 +1066,16 @@ steps:
       {{discovery_results}}
       ```
 
+      **Packaging Check:**
+      ```json
+      {{packaging_check}}
+      ```
+
+      **Build Check:**
+      ```json
+      {{build_check}}
+      ```
+
       **Individual Validation:**
       ```json
       {{individual_validation}}
@@ -774,6 +1097,7 @@ steps:
       - Naming that breaks resolution (spaces, special chars)
       - File format mismatches (agent in .yaml instead of .md)
       - Structural issues that prevent loading
+      - **pyproject.toml force-includes that reference non-existent directories**
 
       **Conventions to Check (Repo-Wide):**
 
@@ -805,6 +1129,11 @@ steps:
          - LICENSE (for public repos)
          - At least one of: bundle.md, bundles/, behaviors/
 
+      6. **Python Packaging** (if pyproject.toml exists):
+         - force-include paths must exist on disk
+         - package-data patterns should resolve
+         - Build should succeed without errors
+
       **Read actual files as needed** to verify conventions.
 
       **Output Format:**
@@ -835,6 +1164,16 @@ steps:
       **Environment:**
       ```json
       {{env_check}}
+      ```
+
+      **Packaging Check:**
+      ```json
+      {{packaging_check}}
+      ```
+
+      **Build Check:**
+      ```json
+      {{build_check}}
       ```
 
       **Discovery:**
@@ -878,10 +1217,17 @@ steps:
       - **Repository**: path
       - **Bundles Found**: X total (Y root, Z behaviors, ...)
       - **Quality Breakdown**: X good, Y polish, Z needs_work, W critical
+      - **Packaging**: PASS/FAIL (with note if pyproject.toml present)
       - **Issues**: X errors, Y warnings, Z suggestions
 
       ## Bundle Discovery
       Summary of what was found in the repository.
+
+      ## Python Packaging Status (if applicable)
+      - pyproject.toml: present/absent
+      - Force-includes checked: X
+      - Build check: passed/failed/skipped
+      - Any packaging issues found
 
       ## Quality Classification Summary
 
@@ -897,6 +1243,7 @@ steps:
 
       ### Errors (Must Fix) - HIGH Priority
       Issues that break bundle loading or basic functionality.
+      **Include any Python packaging errors here - they block installation!**
 
       ### Warnings (Should Fix) - MEDIUM Priority
       Structural issues or convention violations that may cause problems.
@@ -910,12 +1257,13 @@ steps:
 
       ## Metadata
       - Validated: [timestamp]
-      - Recipe: validate-bundle-repo v2.0.0
+      - Recipe: validate-bundle-repo v2.1.0
       - Foundation: version from env_check
       - Quality Thresholds:
         - All bundles must load via BundleRegistry
         - Must have entry point (root bundle OR behaviors/bundles dirs)
         - No orphan agents (if agents/ exists, they must be included)
+        - Python packaging must build successfully (if pyproject.toml present)
 
       Make the report actionable with clear next steps.
       
