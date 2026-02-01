@@ -1,12 +1,45 @@
 # validate-agents.yaml
-# Agent Definition Validator Recipe
+# Agent Definition Validator Recipe v1.2.3
 # Validates agent definitions in a bundle repository for quality, tool access, and structural requirements
+#
+# CHANGELOG:
+# v1.2.3 - Fixed multiline string interpolation bug
+#        - Remove frontmatter and meta fields from structural_results before JSON output
+#        - These fields contain multiline descriptions that break JSON parsing in downstream steps
+#        - All needed validation fields (has_strong_trigger, has_examples, etc.) are preserved
+#
+# v1.2.2 - Fixed JSON interpolation bug in Python steps
+#        - Template variables now parsed via json.loads() instead of direct interpolation
+#        - Fixes boolean true/false (JSON) vs True/False (Python) mismatch
+#
+# v1.2.1 - Fixed bundle-level tool detection (Shadow bundle pattern)
+#        - Tools defined in bundles/*.yaml now count as explicit
+#        - Fixed undefined variable handling when LLM phases are skipped
+#        - Phase 6 now gracefully handles missing quality_results/tool_analysis
+#
+# v1.2.0 - Added deterministic quality classification with explicit PASS thresholds
+#        - Made LLM phases conditional (skip when all agents pass)
+#        - Added quick-approval path for clean bundles
+#        - Added "What is NOT an issue" guidance to prevent nitpicking
+#        - Reduced false positives from subjective LLM evaluation
+#
+# v1.1.0 - Added Context label checking for examples
+#        - Added minimum description length validation
+#        - Added concrete before/after examples in prompts
+#
+# v1.0.0 - Initial release based on manual audit findings
 #
 # Based on manual audit findings:
 # - Missing tool declarations
 # - Weak activation triggers ("Use when..." instead of "MUST/ALWAYS")
 # - Missing <example> blocks in descriptions
 # - Implicit tool dependencies
+#
+# PASS THRESHOLDS (explicit criteria for "good enough"):
+# - Has at least ONE of: MUST, ALWAYS, REQUIRED, PROACTIVELY, DO NOT (activation trigger)
+# - Has at least ONE <example> block
+# - Description >= 100 characters
+# - Has explicit tools section (even if empty [])
 #
 # Usage:
 #   amplifier tool invoke recipes operation=execute \
@@ -23,9 +56,15 @@ description: |
   
   Produces a validation report with findings categorized by severity and actionable remediation.
   
+  **v1.2.0 Improvements:**
+  - Deterministic quality classification before LLM analysis
+  - Explicit PASS thresholds - no more "always finding something"
+  - Quick-approval path for bundles that meet all standards
+  - LLM phases only run when genuinely needed
+  
   This recipe helps maintain agent quality across the Amplifier ecosystem by codifying
   the audit criteria discovered in manual reviews.
-version: "1.1.0"
+version: "1.2.4"
 author: "Amplifier Foundation Team"
 tags: ["agents", "validation", "quality", "audit", "tools", "descriptions"]
 
@@ -203,7 +242,50 @@ steps:
           }))
           exit(0)
 
-      discovery = {{discovery_results}}
+      discovery = json.loads('''{{discovery_results}}''')
+      
+      def get_bundle_level_tools(repo_path: str) -> dict:
+          """
+          Parse bundles/*.yaml files to find tool definitions at bundle level.
+          Returns a dict mapping agent names to their bundle-defined tools.
+          
+          This handles the Shadow bundle pattern where tools are defined in
+          bundle.yaml rather than agent frontmatter.
+          """
+          bundle_tools = {}
+          path = Path(repo_path).expanduser().resolve()
+          bundles_dir = path / "bundles"
+          
+          if not bundles_dir.exists():
+              return bundle_tools
+          
+          for bundle_file in bundles_dir.glob("*.yaml"):
+              try:
+                  content = bundle_file.read_text(encoding='utf-8')
+                  bundle_data = yaml.safe_load(content)
+                  
+                  if not isinstance(bundle_data, dict):
+                      continue
+                  
+                  # Check for agents defined in the bundle
+                  agents = bundle_data.get("agents", [])
+                  if isinstance(agents, list):
+                      for agent in agents:
+                          if isinstance(agent, dict):
+                              agent_name = agent.get("name")
+                              if agent_name and "tools" in agent:
+                                  bundle_tools[agent_name] = {
+                                      "source": str(bundle_file.relative_to(path)),
+                                      "tools": agent.get("tools", [])
+                                  }
+              except Exception:
+                  # Skip files that can't be parsed
+                  continue
+          
+          return bundle_tools
+      
+      # Pre-load bundle-level tool definitions
+      bundle_level_tools = get_bundle_level_tools("{{repo_path}}")
       
       def parse_agent_frontmatter(file_path: str) -> dict:
           """Parse YAML frontmatter from an agent markdown file."""
@@ -294,31 +376,51 @@ steps:
               })
 
           # Check for tools section (WARNING level)
-          if "tools" not in frontmatter:
+          # First check frontmatter, then check bundle-level tools
+          agent_name = Path(file_path).stem
+          has_frontmatter_tools = "tools" in frontmatter
+          has_bundle_tools = agent_name in bundle_level_tools
+          
+          if has_frontmatter_tools:
+              result["has_explicit_tools"] = True
+              result["tools_source"] = "frontmatter"
+              if not frontmatter.get("tools"):
+                  # Empty tools section is OK - it's explicit
+                  pass
+          elif has_bundle_tools:
+              # Tools defined at bundle level (e.g., Shadow bundle pattern)
+              result["has_explicit_tools"] = True
+              result["tools_source"] = "bundle"
+              result["bundle_tools_file"] = bundle_level_tools[agent_name]["source"]
+          else:
               result["warnings"].append({
                   "severity": "WARNING",
                   "code": "NO_TOOLS_SECTION",
                   "message": "Agent has no explicit 'tools:' section - relying on inheritance",
-                  "remediation": "Add explicit tools: section to declare tool dependencies"
+                  "remediation": "Add explicit tools: section to declare tool dependencies (in frontmatter or bundle.yaml)"
               })
-          elif not frontmatter.get("tools"):
-              result["warnings"].append({
-                  "severity": "WARNING",
-                  "code": "EMPTY_TOOLS_SECTION",
-                  "message": "Agent has empty 'tools:' section",
-                  "remediation": "Either add tools the agent needs, or remove section if truly no tools needed"
-              })
+              result["has_explicit_tools"] = False
+              result["tools_source"] = "implicit"
 
           # Extract description for later analysis
           description = meta.get("description", "")
           result["description_length"] = len(description) if description else 0
-          result["has_examples"] = "<example>" in description if description else False
+          result["has_examples"] = "<example>" in description.lower() if description else False
+          
+          # Check for strong activation triggers
+          STRONG_TRIGGERS = ["MUST", "ALWAYS", "REQUIRED", "PROACTIVELY", "DO NOT"]
           result["has_strong_trigger"] = any(
               trigger in description.upper() 
-              for trigger in ["MUST", "ALWAYS", "REQUIRED", "PROACTIVELY"]
+              for trigger in STRONG_TRIGGERS
           ) if description else False
+          
+          # Track which triggers were found (for reporting)
+          result["triggers_found"] = [
+              trigger for trigger in STRONG_TRIGGERS 
+              if trigger in description.upper()
+          ] if description else []
 
-          # NEW: Check minimum description length (100 chars)
+          # Check minimum description length (100 chars)
           MIN_DESCRIPTION_LENGTH = 100
           if result["description_length"] < MIN_DESCRIPTION_LENGTH:
               result["warnings"].append({
@@ -328,9 +430,8 @@ steps:
                   "remediation": "Expand description to include WHY/WHEN/WHAT guidance and activation triggers"
               })
 
-          # NEW: Check if examples have Context labels (quality check)
+          # Check if examples have Context labels (quality check)
           if result["has_examples"]:
-              import re
               example_blocks = re.findall(r'<example>(.*?)</example>', description, re.DOTALL | re.IGNORECASE)
               examples_with_context = sum(1 for ex in example_blocks if 'Context:' in ex or 'context:' in ex)
               result["example_count"] = len(example_blocks)
@@ -368,6 +469,11 @@ steps:
               agent_result["location"] = agent["location"]
               agent_result["relative_path"] = agent["relative_path"]
               
+              # Remove fields that contain multiline content and break JSON interpolation
+              # These fields are only needed for validation within this step, not downstream
+              for field in ["frontmatter", "meta"]:
+                  agent_result.pop(field, None)
+              
               results["agents"].append(agent_result)
               results["summary"]["total"] += 1
               
@@ -390,28 +496,284 @@ steps:
     depends_on: ["agent-discovery"]
 
   # ============================================================================
-  # PHASE 3: Convention Analysis (Agent-Based)
+  # PHASE 2.5: Quality Classification (Deterministic)
+  # Classify overall quality level to determine if LLM analysis is needed
+  # This is the key v1.2.0 addition - explicit PASS thresholds
+  # ============================================================================
+
+  - id: "quality-classification"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+
+      # Parse structural_results as JSON (uses true/false, not True/False)
+      structural = json.loads('''{{structural_results}}''')
+
+      # EXPLICIT PASS THRESHOLDS
+      # An agent PASSES if it meets ALL of these criteria:
+      # 1. No structural errors (valid YAML, has meta.name, meta.description)
+      # 2. Has explicit tools section (even if empty)
+      # 3. Description >= 100 characters
+      # 4. Has at least ONE strong trigger (MUST, ALWAYS, REQUIRED, PROACTIVELY, DO NOT)
+      # 5. Has at least ONE <example> block
+
+      def classify_agent(agent: dict) -> dict:
+          """Classify a single agent's quality level."""
+          
+          # Start with structural pass/fail
+          has_errors = len(agent.get("errors", [])) > 0
+          has_warnings = len(agent.get("warnings", [])) > 0
+          
+          # Extract quality indicators
+          has_explicit_tools = agent.get("has_explicit_tools", False)
+          has_strong_trigger = agent.get("has_strong_trigger", False)
+          has_examples = agent.get("has_examples", False)
+          description_length = agent.get("description_length", 0)
+          
+          # Classify
+          if has_errors:
+              quality = "critical"
+              reason = "Structural errors - agent won't load"
+          elif not has_explicit_tools:
+              quality = "needs_work"
+              reason = "Missing explicit tools section"
+          elif description_length < 100:
+              quality = "needs_work"
+              reason = f"Description too short ({description_length} chars)"
+          elif not has_strong_trigger and not has_examples:
+              quality = "needs_work"
+              reason = "Missing both strong triggers AND examples"
+          elif not has_strong_trigger:
+              quality = "polish"
+              reason = "Has examples but missing strong triggers (MUST/ALWAYS/REQUIRED)"
+          elif not has_examples:
+              quality = "polish"
+              reason = "Has strong triggers but missing <example> blocks"
+          elif has_warnings:
+              quality = "polish"
+              reason = "Meets thresholds but has minor warnings"
+          else:
+              quality = "good"
+              reason = "Meets all quality thresholds"
+          
+          return {
+              "name": agent.get("name"),
+              "quality": quality,
+              "reason": reason,
+              "has_explicit_tools": has_explicit_tools,
+              "has_strong_trigger": has_strong_trigger,
+              "triggers_found": agent.get("triggers_found", []),
+              "has_examples": has_examples,
+              "example_count": agent.get("example_count", 0),
+              "description_length": description_length,
+              "error_count": len(agent.get("errors", [])),
+              "warning_count": len(agent.get("warnings", []))
+          }
+
+      def classify_all():
+          results = {
+              "phase": "classification",
+              "agents": [],
+              "summary": {
+                  "total": 0,
+                  "good": 0,
+                  "polish": 0,
+                  "needs_work": 0,
+                  "critical": 0
+              },
+              "quality_level": "good",
+              "requires_llm_analysis": False
+          }
+          
+          for agent in structural.get("agents", []):
+              classification = classify_agent(agent)
+              results["agents"].append(classification)
+              results["summary"]["total"] += 1
+              results["summary"][classification["quality"]] += 1
+          
+          # Determine overall quality level
+          # Priority: critical > needs_work > polish > good
+          if results["summary"]["critical"] > 0:
+              results["quality_level"] = "critical"
+              results["requires_llm_analysis"] = True
+          elif results["summary"]["needs_work"] > 0:
+              results["quality_level"] = "needs_work"
+              results["requires_llm_analysis"] = True
+          elif results["summary"]["polish"] > 0:
+              results["quality_level"] = "polish"
+              # Polish-level issues may benefit from LLM review
+              results["requires_llm_analysis"] = True
+          else:
+              results["quality_level"] = "good"
+              # All agents pass! No LLM analysis needed.
+              results["requires_llm_analysis"] = False
+          
+          # Provide summary message
+          total = results["summary"]["total"]
+          good = results["summary"]["good"]
+          
+          if results["quality_level"] == "good":
+              results["message"] = f"✅ All {total} agents meet quality thresholds. No further analysis needed."
+          else:
+              not_good = total - good
+              results["message"] = f"⚠️ {not_good}/{total} agents need attention. Running detailed analysis."
+          
+          print(json.dumps(results))
+
+      classify_all()
+      EOF
+    output: "quality_classification"
+    parse_json: true
+    timeout: 60
+    depends_on: ["structural-validation"]
+
+  # ============================================================================
+  # PHASE 2.75: Initialize Optional Outputs
+  # Set default values for variables that may be skipped by conditional phases
+  # This prevents undefined variable errors in Phase 6
+  # ============================================================================
+
+  - id: "initialize-optional-outputs"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      
+      # Initialize default values for conditional phase outputs
+      # These will be overwritten if the corresponding phase runs
+      defaults = {
+          "approval_summary": "_Quick approval not performed - detailed LLM analysis was run instead._",
+          "quality_results": "_Description quality analysis not performed - all agents met quality thresholds via deterministic checks._",
+          "tool_analysis": "_Tool access analysis not performed - all agents have explicit tool declarations._"
+      }
+      
+      print(json.dumps(defaults))
+      EOF
+    output: "optional_defaults"
+    parse_json: true
+    timeout: 30
+    depends_on: ["quality-classification"]
+
+  # Set individual default values (will be overwritten by conditional steps if they run)
+  - id: "set-default-approval-summary"
+    type: "bash"
+    command: |
+      echo "_Quick approval not performed - detailed LLM analysis was run instead._"
+    output: "approval_summary"
+    timeout: 10
+    depends_on: ["initialize-optional-outputs"]
+
+  - id: "set-default-quality-results"
+    type: "bash"
+    command: |
+      echo "_Description quality analysis not performed - all agents met quality thresholds via deterministic checks._"
+    output: "quality_results"
+    timeout: 10
+    depends_on: ["initialize-optional-outputs"]
+
+  - id: "set-default-tool-analysis"
+    type: "bash"
+    command: |
+      echo "_Tool access analysis not performed - all agents have explicit tool declarations._"
+    output: "tool_analysis"
+    timeout: 10
+    depends_on: ["initialize-optional-outputs"]
+
+  # ============================================================================
+  # PHASE 3: Quick Approval (When All Agents Pass)
+  # Fast-track path for bundles that meet all quality thresholds
+  # Model: haiku - simple summary, no complex reasoning needed
+  # ============================================================================
+
+  - id: "quick-approval"
+    agent: "foundation:zen-architect"
+    mode: "REVIEW"
+    provider: "anthropic"
+    model: "claude-haiku"
+    condition: "{{quality_classification.requires_llm_analysis}} == false"
+    depends_on: ["set-default-approval-summary"]
+    prompt: |
+      All agents in this repository meet quality thresholds. Provide a brief approval summary.
+
+      **Repository Path:** {{repo_path}}
+
+      **Quality Classification Results:**
+      ```json
+      {{quality_classification}}
+      ```
+
+      **Structural Validation Summary:**
+      - Total agents: {{structural_results.summary.total}}
+      - Passed structural: {{structural_results.summary.passed}}
+      - Errors: {{structural_results.summary.errors}}
+      - Warnings: {{structural_results.summary.warnings}}
+
+      Provide a concise approval noting:
+      1. ✅ Confirm all agents meet quality standards
+      2. What's done well (patterns worth preserving)
+      3. Any optional polish suggestions (NOT requirements - agents are already good)
+
+      Keep the response brief - this is the fast-track approval path.
+      
+      Format:
+      ## ✅ PASS - All Agents Meet Quality Standards
+      
+      **Summary:** [1-2 sentences]
+      
+      **What's Done Well:**
+      - [list 2-3 positive patterns]
+      
+      **Optional Polish (not required):**
+      - [0-2 minor suggestions, or "None - agents are exemplary"]
+    output: "approval_summary"
+    timeout: 120
+
+  # ============================================================================
+  # PHASE 4: Description Quality Analysis (Agent-Based, Conditional)
   # Check description quality: triggers, examples, WHY/WHEN/WHAT
+  # Only runs when quality_classification.requires_llm_analysis == true
   # Severity: SUGGESTION for quality improvements
   # ============================================================================
 
   - id: "description-quality-check"
     agent: "foundation:zen-architect"
     mode: "REVIEW"
+    condition: "{{quality_classification.requires_llm_analysis}} == true"
+    depends_on: ["set-default-quality-results"]
     prompt: |
-      Analyze agent description quality for this repository.
+      Analyze agent description quality for agents that need work in this repository.
 
       **Repository Path:** {{repo_path}}
+
+      **Quality Classification (focus on these agents):**
+      ```json
+      {{quality_classification}}
+      ```
 
       **Structural Validation Results:**
       ```json
       {{structural_results}}
       ```
 
-      **Quality Criteria to Check:**
+      **IMPORTANT: Focus ONLY on agents with quality != "good"**
       
-      For each agent that passed structural validation, evaluate the `meta.description` against these criteria:
+      Agents classified as "good" have ALREADY PASSED. Do NOT suggest improvements for them.
 
+      **What is NOT an Issue (do not flag these):**
+      - Minor style differences (e.g., "MUST be used" vs "ALWAYS use" - both are strong)
+      - Reasonable alternative approaches to documentation
+      - "Could be slightly better" items for agents that meet thresholds
+      - Personal preferences about wording or structure
+      - Agents that have strong triggers but use different words than the examples
+      
+      **Only flag genuine issues:**
+      - Truly weak/passive triggers ("Use when..." with no imperative language)
+      - Complete absence of examples in agents that need them
+      - Critical missing guidance that would confuse users
+
+      **Quality Criteria to Check (for agents needing work only):**
+      
       ### 1. Activation Triggers (SUGGESTION if weak)
       
       **Strong triggers** use imperative language that COMPELS action:
@@ -419,6 +781,7 @@ steps:
       - "ALWAYS use this agent for..."
       - "REQUIRED for..."
       - "Use PROACTIVELY when..."
+      - "DO NOT attempt this yourself..."
       
       **Weak triggers** (need improvement):
       - "Use when..." (passive)
@@ -433,14 +796,6 @@ steps:
       
       ❌ WEAK: "Use when you need to explore code"
       ✅ STRONG: "ALWAYS delegate multi-file exploration tasks. NEVER read more than 2 files yourself - delegate to this agent instead."
-      
-      ❌ WEAK: "Can be used for test coverage analysis"
-      ✅ STRONG: "MUST be used when writing new features, after bug fixes, or during test reviews. Use PROACTIVELY - don't wait for user to ask."
-      
-      ❌ WEAK: "Helpful for debugging issues"
-      ✅ STRONG: "REQUIRED when user reports errors, unexpected behavior, or test failures. It MUST BE USED - do NOT attempt debugging yourself."
-      
-      **Key Pattern:** Strong triggers tell the LLM exactly WHEN to act and often include negative instructions (what NOT to do) to reinforce the delegation.
       
       Check: Does the description clearly tell the LLM WHEN to delegate to this agent?
 
@@ -473,57 +828,84 @@ steps:
       **Read the actual agent files** at {{repo_path}} to analyze the full descriptions.
 
       **Output Format:**
-      For each agent, provide:
       
-      | Agent | Triggers | Examples | WHY/WHEN/WHAT | Overall |
-      |-------|----------|----------|---------------|---------|
-      | name  | ✅/⚠️    | ✅/⚠️    | ✅/⚠️         | GOOD/NEEDS_WORK |
+      ## Agents Needing Work
       
-      Then for each agent needing work, provide:
+      For each agent with quality != "good", provide:
+      
+      | Agent | Current Quality | Triggers | Examples | WHY/WHEN/WHAT |
+      |-------|-----------------|----------|----------|---------------|
+      | name  | polish/needs_work/critical | ✅/⚠️ | ✅/⚠️ | ✅/⚠️ |
+      
+      Then for each agent:
       - **Agent**: name
-      - **Issues**: List of specific problems
+      - **Classification**: quality level and reason
+      - **Issues**: List of specific problems (NOT nitpicks)
       - **Remediation**: Concrete fixes with examples
+      
+      ## Agents That Pass (no action needed)
+      
+      List agents with quality == "good" - acknowledge they meet standards, do NOT suggest changes.
     output: "quality_results"
     timeout: 600
-    depends_on: ["structural-validation"]
+    depends_on: ["quality-classification"]
 
   # ============================================================================
-  # PHASE 4: Tool Access Analysis (Agent-Based)
+  # PHASE 5: Tool Access Analysis (Agent-Based, Conditional)
   # Check for appropriate tool declarations
+  # Only runs when quality_classification.requires_llm_analysis == true
   # Severity: WARNING for missing explicit tools
   # ============================================================================
 
   - id: "tool-access-analysis"
     agent: "foundation:zen-architect"
     mode: "ANALYZE"
+    condition: "{{quality_classification.requires_llm_analysis}} == true"
+    depends_on: ["set-default-tool-analysis", "description-quality-check"]
     prompt: |
-      Analyze tool access patterns for agents in this repository.
+      Analyze tool access patterns for agents that need work in this repository.
 
       **Repository Path:** {{repo_path}}
+
+      **Quality Classification (focus on agents without explicit tools):**
+      ```json
+      {{quality_classification}}
+      ```
 
       **Structural Validation Results:**
       ```json
       {{structural_results}}
       ```
 
+      **IMPORTANT: Focus ONLY on agents with has_explicit_tools == false**
+      
+      Agents with explicit tools sections have ALREADY PASSED that check. Do NOT suggest changes to their tool lists unless there's a clear mismatch with their role.
+
+      **What is NOT an Issue (do not flag these):**
+      - Agents with `tools: []` (empty is explicit - they intentionally have no tools)
+      - Agents with tools that are "close enough" to their role
+      - Minor tool additions that would be "nice to have"
+      - Theoretical tool needs that aren't blocking functionality
+      
+      **Only flag genuine issues:**
+      - Missing `tools:` section entirely (relying on inheritance)
+      - Obvious tool-role mismatches (e.g., file explorer with no filesystem access)
+
       **Tool Access Analysis Tasks:**
 
       ### 1. Explicit vs Implicit Tools
       
-      For each agent, categorize their tool access:
-      - **Explicit**: Has `tools:` section with listed tools
+      For each agent WITHOUT explicit tools, categorize:
       - **Implicit**: No `tools:` section (relies on inheritance from parent bundle)
-      - **Empty**: Has `tools:` section but it's empty
       
       Implicit tool dependencies are a WARNING because:
       - Agent may not work when used outside its intended bundle context
       - Tool availability becomes unpredictable
       - Makes agent harder to reason about
 
-      ### 2. Role-Appropriate Tools
+      ### 2. Role-Appropriate Tools (only for implicit agents)
       
-      Based on the agent's stated purpose (from meta.description), check if it has
-      appropriate tools. Common patterns:
+      Based on the agent's stated purpose, check if it needs tools. Common patterns:
       
       | Agent Type | Expected Tools |
       |------------|---------------|
@@ -533,33 +915,33 @@ steps:
       | Test coverage | tool-lsp (semantic analysis), tool-filesystem |
       | Web research | tool-web |
       | Builder/implementer | tool-filesystem, bash |
-      
-      Flag agents that seem to be missing critical tools for their role.
 
       **Read the actual agent files** to analyze tool declarations.
 
       **Output Format:**
       
-      ## Tool Access Summary
+      ## Agents with Tool Issues
       
-      | Agent | Tool Access | Status | Missing Tools |
-      |-------|-------------|--------|---------------|
-      | name  | explicit/implicit/empty | ✅/⚠️ | list if any |
-      
-      ## Detailed Findings
+      | Agent | Tool Access | Status | Recommended Fix |
+      |-------|-------------|--------|-----------------|
+      | name  | implicit    | ⚠️     | Add tools: section |
       
       For each agent with issues:
       - **Agent**: name
-      - **Current Tools**: what's declared (or "implicit")
+      - **Current Tools**: "implicit" or list
       - **Issue**: What's wrong
-      - **Recommended Tools**: What should be added
       - **Remediation**: Exact YAML to add
+      
+      ## Agents with Proper Tool Access (no action needed)
+      
+      List agents with has_explicit_tools == true - acknowledge they're correct.
     output: "tool_analysis"
     timeout: 600
     depends_on: ["description-quality-check"]
 
   # ============================================================================
-  # PHASE 5: Final Report Synthesis
+  # PHASE 6: Final Report Synthesis
+  # Generates different reports based on quality_level
   # ============================================================================
 
   - id: "synthesize-report"
@@ -569,6 +951,11 @@ steps:
       Synthesize all validation results into a comprehensive agent validation report.
 
       **Repository:** {{repo_path}}
+
+      **Quality Classification:**
+      ```json
+      {{quality_classification}}
+      ```
 
       **Environment Check:**
       ```json
@@ -591,116 +978,97 @@ steps:
       **Tool Access Analysis:**
       {{tool_analysis}}
 
+      **Quick Approval Summary:**
+      {{approval_summary}}
+
+      **REPORT GENERATION RULES:**
+
+      1. If quality_level == "good": Generate a PASS report celebrating the clean bill of health
+      2. If quality_level == "polish": Generate a PASS WITH SUGGESTIONS report (optional improvements)
+      3. If quality_level == "needs_work": Generate a PASS WITH WARNINGS report (should fix)
+      4. If quality_level == "critical": Generate a FAIL report (must fix)
+
+      **Verdict Selection:**
+      - **✅ PASS**: All agents meet quality thresholds (quality_level == "good")
+      - **✅ PASS WITH SUGGESTIONS**: Minor polish opportunities (quality_level == "polish")
+      - **⚠️ PASS WITH WARNINGS**: Some agents need work (quality_level == "needs_work")
+      - **❌ FAIL**: Critical issues found (quality_level == "critical")
+
       **Generate this report structure:**
 
       # Agent Validation Report
 
       ## Executive Summary
       
-      - **Overall Verdict**: PASS | FAIL | PASS WITH WARNINGS
+      - **Overall Verdict**: [Select from above based on quality_level]
       - **Repository**: [path]
       - **Agents Found**: X total
+      - **Quality Breakdown**: X good, Y polish, Z needs_work, W critical
       - **Issues**: X errors, Y warnings, Z suggestions
-      - **Quality Score**: X/Y agents meet quality standards
 
-      ## Agents Summary Table
+      ## Quality Classification Summary
 
-      | Agent | Location | Structural | Tools | Description | Overall |
-      |-------|----------|------------|-------|-------------|---------|
-      | name  | path     | ✅/❌      | ✅/⚠️  | ✅/⚠️       | rating  |
+      | Agent | Quality | Triggers | Examples | Tools | Description |
+      |-------|---------|----------|----------|-------|-------------|
+      | name  | good/polish/needs_work/critical | ✅/⚠️ | ✅/⚠️ | ✅/⚠️ | length |
 
       ## Detailed Findings
 
-      ### Errors (Must Fix)
+      **For PASS verdict:** Highlight what's done well. Any suggestions are OPTIONAL.
+
+      **For other verdicts:**
+
+      ### Errors (Must Fix) - HIGH Priority
       Issues that break agent loading or basic functionality.
-      - Will cause failures when agent is invoked
-      - Must be fixed before agents are usable
       
-      List each error with:
-      - Agent name
-      - Error code
-      - Problem description
-      - Remediation steps
+      For each error:
+      ```
+      [HIGH] Agent: <name> - <issue>
+      Problem: <what's wrong>
+      Fix: <exact code/YAML to add or change>
+      ```
 
-      ### Warnings (Should Fix)
+      ### Warnings (Should Fix) - MEDIUM Priority
       Issues that may cause problems in certain contexts.
-      - Implicit tool dependencies
-      - Missing tool declarations
-      - Tool-role mismatches
       
-      List each warning with remediation.
+      For each warning:
+      ```
+      [MEDIUM] Agent: <name> - <issue>
+      Problem: <what's wrong>
+      Before: <current state>
+      After: <recommended fix>
+      ```
 
-      ### Suggestions (Consider)
+      ### Suggestions (Consider) - LOW Priority
       Quality improvements for better LLM matching and discoverability.
-      - Weak activation triggers
-      - Missing example blocks
-      - Incomplete WHY/WHEN/WHAT coverage
       
-      List each suggestion with concrete improvement examples.
+      For each suggestion:
+      ```
+      [LOW] Agent: <name> - <issue>
+      Current: "<weak trigger text>"
+      Improved: "<strong trigger text with MUST/ALWAYS>"
+      ```
 
       ## Remediation Priority
-      
-      **Use this explicit priority ordering with HIGH/MEDIUM/LOW labels:**
 
-      ### 🔴 HIGH Priority (Fix Immediately)
-      Issues that break agent functionality or loading.
-      
-      For each HIGH priority item, show:
-      ```
-      1. [HIGH] Agent: <name> - <issue>
-         Problem: <what's wrong>
-         Fix: <exact code/YAML to add or change>
-      ```
-      
-      HIGH priority includes:
-      - Missing frontmatter (ERROR)
-      - Invalid YAML syntax (ERROR)
-      - Missing meta.name or meta.description (ERROR)
-      - Missing explicit tools section for agents that clearly need tools
-
-      ### 🟡 MEDIUM Priority (Fix Soon)
-      Issues that may cause problems in certain contexts.
-      
-      For each MEDIUM priority item, show:
-      ```
-      2. [MEDIUM] Agent: <name> - <issue>
-         Problem: <what's wrong>
-         Before: <current state>
-         After: <recommended fix>
-      ```
-      
-      MEDIUM priority includes:
-      - No explicit tools section (WARNING)
-      - Tool-role mismatch (WARNING)
-      - Short description under 100 chars (WARNING)
-      - Examples missing Context labels (WARNING)
-
-      ### 🟢 LOW Priority (Quality Improvements)
-      Enhancements for better LLM matching and discoverability.
-      
-      For each LOW priority item, show:
-      ```
-      3. [LOW] Agent: <name> - <issue>
-         Current: "<weak trigger text>"
-         Improved: "<strong trigger text with MUST/ALWAYS>"
-      ```
-      
-      LOW priority includes:
-      - Weak activation triggers (SUGGESTION)
-      - Missing example blocks (SUGGESTION)
-      - Incomplete WHY/WHEN/WHAT coverage (SUGGESTION)
-
-      **IMPORTANT:** Always provide concrete before/after examples showing exactly what to change, not just descriptions of what's wrong.
+      List items in order of importance with clear HIGH/MEDIUM/LOW labels.
 
       ## Metadata
       - **Validated**: [timestamp]
-      - **Recipe**: validate-agents v1.0.0
+      - **Recipe**: validate-agents v1.2.1
+      - **Quality Thresholds**:
+        - Strong trigger: MUST, ALWAYS, REQUIRED, PROACTIVELY, or DO NOT
+        - Examples: At least one <example> block
+        - Description: >= 100 characters
+        - Tools: Explicit tools: section (even if empty)
       - **Severity Guide**:
-        - ERROR: Invalid YAML, missing required fields (will break)
-        - WARNING: No explicit tools, relying on inheritance (may break)
-        - SUGGESTION: Weak triggers, missing examples (quality improvement)
+        - ERROR (critical): Invalid YAML, missing required fields (will break)
+        - WARNING (needs_work): No explicit tools, relying on inheritance (may break)
+        - SUGGESTION (polish): Weak triggers, missing examples (quality improvement)
 
       Make the report actionable with clear next steps and concrete examples.
+      
+      **IMPORTANT:** If verdict is PASS, emphasize that the agents are GOOD and any suggestions are truly optional polish, not required changes.
     output: "final_report"
     timeout: 300
-    depends_on: ["tool-access-analysis"]
+    depends_on: ["quality-classification", "quick-approval", "description-quality-check", "tool-access-analysis", "set-default-approval-summary", "set-default-quality-results", "set-default-tool-analysis"]
