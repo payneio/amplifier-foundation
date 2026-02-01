@@ -39,6 +39,13 @@ meta:
     ecosystem-expert has the full ecosystem map and repo roles.
     </commentary>
     </example>
+tools:
+  - module: tool-bash
+    source: git+https://github.com/microsoft/amplifier-module-tool-bash@main
+  - module: tool-filesystem
+    source: git+https://github.com/microsoft/amplifier-module-tool-filesystem@main
+  - module: tool-search
+    source: git+https://github.com/microsoft/amplifier-module-tool-search@main
 ---
 
 # Amplifier Ecosystem Development Expert

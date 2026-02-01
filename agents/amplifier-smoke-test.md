@@ -27,6 +27,11 @@ meta:
     user: 'Confirm my changes to core and foundation work together'
     assistant: 'I'll use amplifier-smoke-test to validate both local sources and test their Amplifier integration.'
     </example>
+tools:
+  - module: tool-bash
+    source: git+https://github.com/microsoft/amplifier-module-tool-bash@main
+  - module: tool-filesystem
+    source: git+https://github.com/microsoft/amplifier-module-tool-filesystem@main
 ---
 
 # Amplifier Smoke Test Agent

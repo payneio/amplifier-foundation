@@ -1,7 +1,7 @@
 ---
 meta:
   name: file-ops
-  description: "Focused file operations agent for reading, writing, editing, and searching files. Use when you need precise file system operations without the broader exploration scope. This agent handles: reading file contents, writing new files, making targeted edits, finding files by pattern (glob), and searching file contents (grep). Best for: single-file operations, batch file changes, content search, and file discovery tasks.
+  description: "Focused file operations agent for reading, writing, editing, and searching files. ALWAYS use for targeted file operations when you need precise file system operations without the broader exploration scope. This agent handles: reading file contents, writing new files, making targeted edits, finding files by pattern (glob), and searching file contents (grep). Best for: single-file operations, batch file changes, content search, and file discovery tasks.
 
 <example>
 Context: User needs specific files read or written
