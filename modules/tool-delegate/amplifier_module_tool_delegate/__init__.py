@@ -194,13 +194,29 @@ class DelegateTool:
         agents_list = self._get_agent_list()
         feature_desc = self._compose_feature_descriptions()
 
-        base_description = """Spawn a specialized agent to handle complex, multi-step tasks autonomously.
+        base_description = """Spawn a specialized agent to handle tasks autonomously.
 
-Agent delegation conserves your context window. Work done by agents uses THEIR context, returning only
-the summary to you. Prefer agent delegation for:
-- Tasks requiring multiple file reads or searches
-- Self-contained work with clear success criteria
-- Tasks matching an agent's specialty
+CRITICAL: Delegation is your PRIMARY operating mode, not an optimization.
+
+ALWAYS use this tool when:
+- Task requires reading more than 2 files
+- Task requires exploration or investigation
+- Task matches any agent's specialty (check Available agents below)
+- Task would benefit from specialized context or tools
+- You're about to use grep, glob, or read_file more than twice
+- User asks you to "look into", "investigate", "explore", or "analyze" something
+
+NEVER do these yourself - ALWAYS delegate:
+- Codebase exploration → foundation:explorer
+- Git commits/PRs → foundation:git-ops  
+- Session/conversation analysis → foundation:session-analyst
+- Debugging errors → foundation:bug-hunter
+- Architecture decisions → foundation:zen-architect
+- Implementation work → foundation:modular-builder
+
+Why delegate: Every tool call YOU make consumes YOUR context window permanently.
+Agents absorb that cost and return only summaries (~500 tokens vs ~20,000 tokens).
+Delegation = longer, more effective sessions.
 
 Special agent values:
 - agent="namespace:path/to/bundle": Delegate to any bundle directly as an agent"""
@@ -218,7 +234,8 @@ Special agent values:
 Agent usage notes:
 - Launch multiple agents concurrently when tasks are independent
 - When an agent completes, it returns a single message back to you
-- Each agent invocation is stateless - provide complete context in your instruction"""
+- Each agent invocation is stateless - provide complete context in your instruction
+- DEFAULT TO DELEGATION - only do simple single-step work yourself"""
 
         if agents_list:
             agent_desc = "\n".join(
