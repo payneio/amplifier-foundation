@@ -25,7 +25,7 @@ description: |
   
   This recipe helps maintain agent quality across the Amplifier ecosystem by codifying
   the audit criteria discovered in manual reviews.
-version: "1.0.0"
+version: "1.1.0"
 author: "Amplifier Foundation Team"
 tags: ["agents", "validation", "quality", "audit", "tools", "descriptions"]
 
@@ -318,6 +318,35 @@ steps:
               for trigger in ["MUST", "ALWAYS", "REQUIRED", "PROACTIVELY"]
           ) if description else False
 
+          # NEW: Check minimum description length (100 chars)
+          MIN_DESCRIPTION_LENGTH = 100
+          if result["description_length"] < MIN_DESCRIPTION_LENGTH:
+              result["warnings"].append({
+                  "severity": "WARNING",
+                  "code": "SHORT_DESCRIPTION",
+                  "message": f"Description is too short ({result['description_length']} chars, minimum {MIN_DESCRIPTION_LENGTH})",
+                  "remediation": "Expand description to include WHY/WHEN/WHAT guidance and activation triggers"
+              })
+
+          # NEW: Check if examples have Context labels (quality check)
+          if result["has_examples"]:
+              import re
+              example_blocks = re.findall(r'<example>(.*?)</example>', description, re.DOTALL | re.IGNORECASE)
+              examples_with_context = sum(1 for ex in example_blocks if 'Context:' in ex or 'context:' in ex)
+              result["example_count"] = len(example_blocks)
+              result["examples_with_context"] = examples_with_context
+              
+              if example_blocks and examples_with_context < len(example_blocks):
+                  result["warnings"].append({
+                      "severity": "WARNING",
+                      "code": "EXAMPLES_MISSING_CONTEXT",
+                      "message": f"Only {examples_with_context}/{len(example_blocks)} examples have 'Context:' labels",
+                      "remediation": "Add 'Context: [situation]' line at start of each <example> block to help LLM understand when to match"
+                  })
+          else:
+              result["example_count"] = 0
+              result["examples_with_context"] = 0
+
           return result
 
       def validate_all_agents():
@@ -385,7 +414,7 @@ steps:
 
       ### 1. Activation Triggers (SUGGESTION if weak)
       
-      **Strong triggers** use imperative language:
+      **Strong triggers** use imperative language that COMPELS action:
       - "MUST be used when..."
       - "ALWAYS use this agent for..."
       - "REQUIRED for..."
@@ -395,6 +424,23 @@ steps:
       - "Use when..." (passive)
       - "Can be used for..." (ambiguous)
       - "Helpful for..." (vague)
+      - "This agent helps with..." (passive description)
+      
+      **CONCRETE BEFORE/AFTER EXAMPLES:**
+      
+      ❌ WEAK: "This agent helps with security reviews"
+      ✅ STRONG: "MUST be used when reviewing authentication code, handling user data, or before production deployments"
+      
+      ❌ WEAK: "Use when you need to explore code"
+      ✅ STRONG: "ALWAYS delegate multi-file exploration tasks. NEVER read more than 2 files yourself - delegate to this agent instead."
+      
+      ❌ WEAK: "Can be used for test coverage analysis"
+      ✅ STRONG: "MUST be used when writing new features, after bug fixes, or during test reviews. Use PROACTIVELY - don't wait for user to ask."
+      
+      ❌ WEAK: "Helpful for debugging issues"
+      ✅ STRONG: "REQUIRED when user reports errors, unexpected behavior, or test failures. It MUST BE USED - do NOT attempt debugging yourself."
+      
+      **Key Pattern:** Strong triggers tell the LLM exactly WHEN to act and often include negative instructions (what NOT to do) to reinforce the delegation.
       
       Check: Does the description clearly tell the LLM WHEN to delegate to this agent?
 
@@ -593,15 +639,58 @@ steps:
       List each suggestion with concrete improvement examples.
 
       ## Remediation Priority
+      
+      **Use this explicit priority ordering with HIGH/MEDIUM/LOW labels:**
 
-      ### Immediate (Errors)
-      Numbered list of must-fix items.
+      ### 🔴 HIGH Priority (Fix Immediately)
+      Issues that break agent functionality or loading.
+      
+      For each HIGH priority item, show:
+      ```
+      1. [HIGH] Agent: <name> - <issue>
+         Problem: <what's wrong>
+         Fix: <exact code/YAML to add or change>
+      ```
+      
+      HIGH priority includes:
+      - Missing frontmatter (ERROR)
+      - Invalid YAML syntax (ERROR)
+      - Missing meta.name or meta.description (ERROR)
+      - Missing explicit tools section for agents that clearly need tools
 
-      ### High Priority (Warnings)
-      Numbered list of should-fix items for reliability.
+      ### 🟡 MEDIUM Priority (Fix Soon)
+      Issues that may cause problems in certain contexts.
+      
+      For each MEDIUM priority item, show:
+      ```
+      2. [MEDIUM] Agent: <name> - <issue>
+         Problem: <what's wrong>
+         Before: <current state>
+         After: <recommended fix>
+      ```
+      
+      MEDIUM priority includes:
+      - No explicit tools section (WARNING)
+      - Tool-role mismatch (WARNING)
+      - Short description under 100 chars (WARNING)
+      - Examples missing Context labels (WARNING)
 
-      ### Quality Improvements (Suggestions)
-      Numbered list of enhancements for better agent matching.
+      ### 🟢 LOW Priority (Quality Improvements)
+      Enhancements for better LLM matching and discoverability.
+      
+      For each LOW priority item, show:
+      ```
+      3. [LOW] Agent: <name> - <issue>
+         Current: "<weak trigger text>"
+         Improved: "<strong trigger text with MUST/ALWAYS>"
+      ```
+      
+      LOW priority includes:
+      - Weak activation triggers (SUGGESTION)
+      - Missing example blocks (SUGGESTION)
+      - Incomplete WHY/WHEN/WHAT coverage (SUGGESTION)
+
+      **IMPORTANT:** Always provide concrete before/after examples showing exactly what to change, not just descriptions of what's wrong.
 
       ## Metadata
       - **Validated**: [timestamp]
