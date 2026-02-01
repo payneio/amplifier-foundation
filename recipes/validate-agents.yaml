@@ -1,0 +1,617 @@
+# validate-agents.yaml
+# Agent Definition Validator Recipe
+# Validates agent definitions in a bundle repository for quality, tool access, and structural requirements
+#
+# Based on manual audit findings:
+# - Missing tool declarations
+# - Weak activation triggers ("Use when..." instead of "MUST/ALWAYS")
+# - Missing <example> blocks in descriptions
+# - Implicit tool dependencies
+#
+# Usage:
+#   amplifier tool invoke recipes operation=execute \
+#     recipe_path=foundation:recipes/validate-agents.yaml \
+#     context='{"repo_path": "/path/to/bundle-repo"}'
+
+name: validate-agents
+description: |
+  Validates Amplifier agent definitions in a bundle repository against:
+  
+  - **Structural Requirements** (ERROR): Valid YAML frontmatter, required meta fields
+  - **Tool Access** (WARNING): Explicit tools section, appropriate tools for role
+  - **Description Quality** (SUGGESTION): Activation triggers, examples, WHY/WHEN/WHAT guidance
+  
+  Produces a validation report with findings categorized by severity and actionable remediation.
+  
+  This recipe helps maintain agent quality across the Amplifier ecosystem by codifying
+  the audit criteria discovered in manual reviews.
+version: "1.0.0"
+author: "Amplifier Foundation Team"
+tags: ["agents", "validation", "quality", "audit", "tools", "descriptions"]
+
+context:
+  repo_path: ""  # Required: Path to bundle repository containing agents/
+
+steps:
+  # ============================================================================
+  # PHASE 0: Environment Check
+  # Verify we have the tools needed for validation
+  # ============================================================================
+
+  - id: "environment-check"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      import sys
+      from pathlib import Path
+
+      results = {
+          "phase": "environment",
+          "python_version": sys.version,
+          "yaml_available": False,
+          "repo_path": "{{repo_path}}",
+          "repo_exists": False,
+          "errors": []
+      }
+
+      # Check YAML parsing capability
+      try:
+          import yaml
+          results["yaml_available"] = True
+      except ImportError:
+          results["errors"].append({
+              "type": "import_error",
+              "message": "PyYAML not available - required for parsing agent frontmatter",
+              "suggestion": "pip install pyyaml"
+          })
+
+      # Check repo path exists
+      repo_path = Path("{{repo_path}}").expanduser().resolve()
+      if repo_path.exists() and repo_path.is_dir():
+          results["repo_exists"] = True
+          results["repo_path_resolved"] = str(repo_path)
+      else:
+          results["errors"].append({
+              "type": "path_error",
+              "message": f"Repository path does not exist or is not a directory: {{repo_path}}"
+          })
+
+      print(json.dumps(results))
+      EOF
+    output: "env_check"
+    parse_json: true
+    timeout: 30
+
+  # ============================================================================
+  # PHASE 1: Agent Discovery
+  # Find all agent definition files in the repository
+  # ============================================================================
+
+  - id: "agent-discovery"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      from pathlib import Path
+
+      def discover_agents(repo_path: str) -> dict:
+          """Discover all agent definition files in a repository."""
+          results = {
+              "phase": "discovery",
+              "repo_path": repo_path,
+              "agents_found": [],
+              "total_count": 0,
+              "search_locations": [],
+              "errors": []
+          }
+
+          path = Path(repo_path).expanduser().resolve()
+          
+          if not path.exists():
+              results["errors"].append({
+                  "type": "path_error",
+                  "message": f"Repository path does not exist: {repo_path}"
+              })
+              print(json.dumps(results))
+              return results
+
+          # Direct agents/ directory
+          agents_dir = path / "agents"
+          if agents_dir.exists() and agents_dir.is_dir():
+              results["search_locations"].append(str(agents_dir))
+              for agent_file in agents_dir.glob("*.md"):
+                  results["agents_found"].append({
+                      "path": str(agent_file),
+                      "relative_path": str(agent_file.relative_to(path)),
+                      "name": agent_file.stem,
+                      "location": "agents/"
+                  })
+
+          # Check behaviors/*/agents/ pattern
+          behaviors_dir = path / "behaviors"
+          if behaviors_dir.exists():
+              for behavior in behaviors_dir.iterdir():
+                  if behavior.is_dir():
+                      behavior_agents = behavior / "agents"
+                      if behavior_agents.exists() and behavior_agents.is_dir():
+                          results["search_locations"].append(str(behavior_agents))
+                          for agent_file in behavior_agents.glob("*.md"):
+                              results["agents_found"].append({
+                                  "path": str(agent_file),
+                                  "relative_path": str(agent_file.relative_to(path)),
+                                  "name": agent_file.stem,
+                                  "location": f"behaviors/{behavior.name}/agents/"
+                              })
+
+          # Also check for standalone agent files in bundles/
+          bundles_dir = path / "bundles"
+          if bundles_dir.exists():
+              for bundle in bundles_dir.iterdir():
+                  if bundle.is_dir():
+                      bundle_agents = bundle / "agents"
+                      if bundle_agents.exists() and bundle_agents.is_dir():
+                          results["search_locations"].append(str(bundle_agents))
+                          for agent_file in bundle_agents.glob("*.md"):
+                              results["agents_found"].append({
+                                  "path": str(agent_file),
+                                  "relative_path": str(agent_file.relative_to(path)),
+                                  "name": agent_file.stem,
+                                  "location": f"bundles/{bundle.name}/agents/"
+                              })
+
+          results["total_count"] = len(results["agents_found"])
+          
+          if results["total_count"] == 0:
+              results["errors"].append({
+                  "type": "no_agents",
+                  "message": "No agent files found in repository",
+                  "searched": results["search_locations"] or ["agents/", "behaviors/*/agents/", "bundles/*/agents/"]
+              })
+
+          print(json.dumps(results))
+          return results
+
+      discover_agents("{{repo_path}}")
+      EOF
+    output: "discovery_results"
+    parse_json: true
+    timeout: 60
+    depends_on: ["environment-check"]
+
+  # ============================================================================
+  # PHASE 2: Structural Validation (Deterministic)
+  # Parse YAML frontmatter, check required fields
+  # Severity: ERROR for issues that will break loading
+  # ============================================================================
+
+  - id: "structural-validation"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      import re
+      from pathlib import Path
+
+      try:
+          import yaml
+      except ImportError:
+          print(json.dumps({
+              "phase": "structural",
+              "skipped": True,
+              "reason": "PyYAML not available"
+          }))
+          exit(0)
+
+      discovery = {{discovery_results}}
+      
+      def parse_agent_frontmatter(file_path: str) -> dict:
+          """Parse YAML frontmatter from an agent markdown file."""
+          result = {
+              "path": file_path,
+              "has_frontmatter": False,
+              "frontmatter": None,
+              "meta": None,
+              "errors": [],
+              "warnings": []
+          }
+
+          try:
+              content = Path(file_path).read_text(encoding='utf-8')
+          except Exception as e:
+              result["errors"].append({
+                  "severity": "ERROR",
+                  "code": "READ_ERROR",
+                  "message": f"Failed to read file: {e}"
+              })
+              return result
+
+          # Extract YAML frontmatter (between --- markers)
+          frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+          
+          if not frontmatter_match:
+              result["errors"].append({
+                  "severity": "ERROR",
+                  "code": "NO_FRONTMATTER",
+                  "message": "Agent file missing YAML frontmatter (--- markers)",
+                  "remediation": "Add YAML frontmatter at the start of the file between --- markers"
+              })
+              return result
+
+          result["has_frontmatter"] = True
+          frontmatter_text = frontmatter_match.group(1)
+
+          # Parse YAML
+          try:
+              frontmatter = yaml.safe_load(frontmatter_text)
+              result["frontmatter"] = frontmatter
+          except yaml.YAMLError as e:
+              result["errors"].append({
+                  "severity": "ERROR",
+                  "code": "YAML_PARSE_ERROR",
+                  "message": f"Invalid YAML in frontmatter: {e}",
+                  "remediation": "Fix YAML syntax errors in frontmatter"
+              })
+              return result
+
+          if not isinstance(frontmatter, dict):
+              result["errors"].append({
+                  "severity": "ERROR",
+                  "code": "INVALID_FRONTMATTER",
+                  "message": "Frontmatter must be a YAML dictionary",
+                  "remediation": "Ensure frontmatter contains key-value pairs"
+              })
+              return result
+
+          # Check for meta section
+          if "meta" not in frontmatter:
+              result["errors"].append({
+                  "severity": "ERROR",
+                  "code": "MISSING_META",
+                  "message": "Agent file missing 'meta:' section in frontmatter",
+                  "remediation": "Add meta: section with name and description"
+              })
+              return result
+
+          meta = frontmatter.get("meta", {})
+          result["meta"] = meta
+
+          # Check required meta fields
+          if not meta.get("name"):
+              result["errors"].append({
+                  "severity": "ERROR",
+                  "code": "MISSING_META_NAME",
+                  "message": "Agent missing 'meta.name' - agent won't be identifiable",
+                  "remediation": "Add meta.name with a descriptive agent name"
+              })
+
+          if not meta.get("description"):
+              result["errors"].append({
+                  "severity": "ERROR",
+                  "code": "MISSING_META_DESCRIPTION",
+                  "message": "Agent missing 'meta.description' - agent won't appear in delegate tool",
+                  "remediation": "Add meta.description explaining WHAT the agent does and WHEN to use it"
+              })
+
+          # Check for tools section (WARNING level)
+          if "tools" not in frontmatter:
+              result["warnings"].append({
+                  "severity": "WARNING",
+                  "code": "NO_TOOLS_SECTION",
+                  "message": "Agent has no explicit 'tools:' section - relying on inheritance",
+                  "remediation": "Add explicit tools: section to declare tool dependencies"
+              })
+          elif not frontmatter.get("tools"):
+              result["warnings"].append({
+                  "severity": "WARNING",
+                  "code": "EMPTY_TOOLS_SECTION",
+                  "message": "Agent has empty 'tools:' section",
+                  "remediation": "Either add tools the agent needs, or remove section if truly no tools needed"
+              })
+
+          # Extract description for later analysis
+          description = meta.get("description", "")
+          result["description_length"] = len(description) if description else 0
+          result["has_examples"] = "<example>" in description if description else False
+          result["has_strong_trigger"] = any(
+              trigger in description.upper() 
+              for trigger in ["MUST", "ALWAYS", "REQUIRED", "PROACTIVELY"]
+          ) if description else False
+
+          return result
+
+      def validate_all_agents():
+          results = {
+              "phase": "structural",
+              "skipped": False,
+              "agents": [],
+              "summary": {
+                  "total": 0,
+                  "passed": 0,
+                  "errors": 0,
+                  "warnings": 0
+              }
+          }
+
+          for agent in discovery.get("agents_found", []):
+              agent_result = parse_agent_frontmatter(agent["path"])
+              agent_result["name"] = agent["name"]
+              agent_result["location"] = agent["location"]
+              agent_result["relative_path"] = agent["relative_path"]
+              
+              results["agents"].append(agent_result)
+              results["summary"]["total"] += 1
+              
+              if agent_result["errors"]:
+                  results["summary"]["errors"] += len(agent_result["errors"])
+              else:
+                  results["summary"]["passed"] += 1
+              
+              if agent_result.get("warnings"):
+                  results["summary"]["warnings"] += len(agent_result["warnings"])
+
+          print(json.dumps(results))
+
+      validate_all_agents()
+      EOF
+    output: "structural_results"
+    parse_json: true
+    timeout: 120
+    on_error: "continue"
+    depends_on: ["agent-discovery"]
+
+  # ============================================================================
+  # PHASE 3: Convention Analysis (Agent-Based)
+  # Check description quality: triggers, examples, WHY/WHEN/WHAT
+  # Severity: SUGGESTION for quality improvements
+  # ============================================================================
+
+  - id: "description-quality-check"
+    agent: "foundation:zen-architect"
+    mode: "REVIEW"
+    prompt: |
+      Analyze agent description quality for this repository.
+
+      **Repository Path:** {{repo_path}}
+
+      **Structural Validation Results:**
+      ```json
+      {{structural_results}}
+      ```
+
+      **Quality Criteria to Check:**
+      
+      For each agent that passed structural validation, evaluate the `meta.description` against these criteria:
+
+      ### 1. Activation Triggers (SUGGESTION if weak)
+      
+      **Strong triggers** use imperative language:
+      - "MUST be used when..."
+      - "ALWAYS use this agent for..."
+      - "REQUIRED for..."
+      - "Use PROACTIVELY when..."
+      
+      **Weak triggers** (need improvement):
+      - "Use when..." (passive)
+      - "Can be used for..." (ambiguous)
+      - "Helpful for..." (vague)
+      
+      Check: Does the description clearly tell the LLM WHEN to delegate to this agent?
+
+      ### 2. Example Blocks (SUGGESTION if missing)
+      
+      Good agent descriptions include `<example>` blocks showing:
+      ```
+      <example>
+      Context: [situation]
+      user: '[example request]'
+      assistant: '[how assistant should respond]'
+      <commentary>
+      [why this triggers this agent]
+      </commentary>
+      </example>
+      ```
+      
+      Check: Does the description have at least one `<example>` block?
+
+      ### 3. WHY/WHEN/WHAT Guidance (SUGGESTION if incomplete)
+      
+      Good descriptions answer:
+      - **WHY**: Why does this agent exist? What problem does it solve?
+      - **WHEN**: When should this agent be invoked? What triggers it?
+      - **WHAT**: What does this agent do? What are its capabilities?
+      - **HOW**: How does it work? What tools/approach does it use?
+      
+      Check: Are these four aspects covered in the description?
+
+      **Read the actual agent files** at {{repo_path}} to analyze the full descriptions.
+
+      **Output Format:**
+      For each agent, provide:
+      
+      | Agent | Triggers | Examples | WHY/WHEN/WHAT | Overall |
+      |-------|----------|----------|---------------|---------|
+      | name  | ✅/⚠️    | ✅/⚠️    | ✅/⚠️         | GOOD/NEEDS_WORK |
+      
+      Then for each agent needing work, provide:
+      - **Agent**: name
+      - **Issues**: List of specific problems
+      - **Remediation**: Concrete fixes with examples
+    output: "quality_results"
+    timeout: 600
+    depends_on: ["structural-validation"]
+
+  # ============================================================================
+  # PHASE 4: Tool Access Analysis (Agent-Based)
+  # Check for appropriate tool declarations
+  # Severity: WARNING for missing explicit tools
+  # ============================================================================
+
+  - id: "tool-access-analysis"
+    agent: "foundation:zen-architect"
+    mode: "ANALYZE"
+    prompt: |
+      Analyze tool access patterns for agents in this repository.
+
+      **Repository Path:** {{repo_path}}
+
+      **Structural Validation Results:**
+      ```json
+      {{structural_results}}
+      ```
+
+      **Tool Access Analysis Tasks:**
+
+      ### 1. Explicit vs Implicit Tools
+      
+      For each agent, categorize their tool access:
+      - **Explicit**: Has `tools:` section with listed tools
+      - **Implicit**: No `tools:` section (relies on inheritance from parent bundle)
+      - **Empty**: Has `tools:` section but it's empty
+      
+      Implicit tool dependencies are a WARNING because:
+      - Agent may not work when used outside its intended bundle context
+      - Tool availability becomes unpredictable
+      - Makes agent harder to reason about
+
+      ### 2. Role-Appropriate Tools
+      
+      Based on the agent's stated purpose (from meta.description), check if it has
+      appropriate tools. Common patterns:
+      
+      | Agent Type | Expected Tools |
+      |------------|---------------|
+      | Security auditor | tool-web (CVE lookups), tool-filesystem |
+      | Code explorer | tool-filesystem, grep, glob |
+      | Git operations | bash (git commands), tool-filesystem |
+      | Test coverage | tool-lsp (semantic analysis), tool-filesystem |
+      | Web research | tool-web |
+      | Builder/implementer | tool-filesystem, bash |
+      
+      Flag agents that seem to be missing critical tools for their role.
+
+      **Read the actual agent files** to analyze tool declarations.
+
+      **Output Format:**
+      
+      ## Tool Access Summary
+      
+      | Agent | Tool Access | Status | Missing Tools |
+      |-------|-------------|--------|---------------|
+      | name  | explicit/implicit/empty | ✅/⚠️ | list if any |
+      
+      ## Detailed Findings
+      
+      For each agent with issues:
+      - **Agent**: name
+      - **Current Tools**: what's declared (or "implicit")
+      - **Issue**: What's wrong
+      - **Recommended Tools**: What should be added
+      - **Remediation**: Exact YAML to add
+    output: "tool_analysis"
+    timeout: 600
+    depends_on: ["description-quality-check"]
+
+  # ============================================================================
+  # PHASE 5: Final Report Synthesis
+  # ============================================================================
+
+  - id: "synthesize-report"
+    agent: "foundation:zen-architect"
+    mode: "ANALYZE"
+    prompt: |
+      Synthesize all validation results into a comprehensive agent validation report.
+
+      **Repository:** {{repo_path}}
+
+      **Environment Check:**
+      ```json
+      {{env_check}}
+      ```
+
+      **Agent Discovery:**
+      ```json
+      {{discovery_results}}
+      ```
+
+      **Structural Validation:**
+      ```json
+      {{structural_results}}
+      ```
+
+      **Description Quality Analysis:**
+      {{quality_results}}
+
+      **Tool Access Analysis:**
+      {{tool_analysis}}
+
+      **Generate this report structure:**
+
+      # Agent Validation Report
+
+      ## Executive Summary
+      
+      - **Overall Verdict**: PASS | FAIL | PASS WITH WARNINGS
+      - **Repository**: [path]
+      - **Agents Found**: X total
+      - **Issues**: X errors, Y warnings, Z suggestions
+      - **Quality Score**: X/Y agents meet quality standards
+
+      ## Agents Summary Table
+
+      | Agent | Location | Structural | Tools | Description | Overall |
+      |-------|----------|------------|-------|-------------|---------|
+      | name  | path     | ✅/❌      | ✅/⚠️  | ✅/⚠️       | rating  |
+
+      ## Detailed Findings
+
+      ### Errors (Must Fix)
+      Issues that break agent loading or basic functionality.
+      - Will cause failures when agent is invoked
+      - Must be fixed before agents are usable
+      
+      List each error with:
+      - Agent name
+      - Error code
+      - Problem description
+      - Remediation steps
+
+      ### Warnings (Should Fix)
+      Issues that may cause problems in certain contexts.
+      - Implicit tool dependencies
+      - Missing tool declarations
+      - Tool-role mismatches
+      
+      List each warning with remediation.
+
+      ### Suggestions (Consider)
+      Quality improvements for better LLM matching and discoverability.
+      - Weak activation triggers
+      - Missing example blocks
+      - Incomplete WHY/WHEN/WHAT coverage
+      
+      List each suggestion with concrete improvement examples.
+
+      ## Remediation Priority
+
+      ### Immediate (Errors)
+      Numbered list of must-fix items.
+
+      ### High Priority (Warnings)
+      Numbered list of should-fix items for reliability.
+
+      ### Quality Improvements (Suggestions)
+      Numbered list of enhancements for better agent matching.
+
+      ## Metadata
+      - **Validated**: [timestamp]
+      - **Recipe**: validate-agents v1.0.0
+      - **Severity Guide**:
+        - ERROR: Invalid YAML, missing required fields (will break)
+        - WARNING: No explicit tools, relying on inheritance (may break)
+        - SUGGESTION: Weak triggers, missing examples (quality improvement)
+
+      Make the report actionable with clear next steps and concrete examples.
+    output: "final_report"
+    timeout: 300
+    depends_on: ["tool-access-analysis"]
