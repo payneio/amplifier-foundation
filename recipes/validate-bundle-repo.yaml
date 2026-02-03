@@ -86,6 +86,23 @@ description: |
   - Clear "Environment Status" section in all reports
   - Separation of "environment limitations" vs "bundle problems"
   
+  **Enabling Full Validation (if deps missing)**
+  
+  If running on a system with externally-managed Python (PEP 668), use uvx:
+  ```bash
+  # Install deps ephemerally via uvx
+  uvx --with hatchling --with "git+https://github.com/microsoft/amplifier-foundation@main" \
+      amplifier tool invoke recipes operation=execute \
+      recipe_path=foundation:recipes/validate-bundle-repo.yaml \
+      context='{"repo_path": "/path/to/repo"}'
+  ```
+  
+  Or install directly (if pip works):
+  ```bash
+  pip install hatchling
+  pip install git+https://github.com/microsoft/amplifier-foundation@main
+  ```
+  
   **v3.1.0 Enhancements:**
   - Inheritance-aware tool placement analysis
   - Understands delegate tool's exclude_tools config (default: ["delegate"])
