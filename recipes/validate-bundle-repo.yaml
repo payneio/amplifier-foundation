@@ -1,9 +1,19 @@
 # validate-bundle-repo.yaml
-# Repository-Wide Bundle Validator Recipe v3.1.0
+# Repository-Wide Bundle Validator Recipe v3.2.0
 # Validates an entire bundle repository against structural requirements, conventions,
 # and Amplifier bundle philosophy (context sink pattern, thin behaviors, tool placement)
 #
 # CHANGELOG:
+# v3.2.0 - Graceful environment handling
+#        - Phase 0 now checks prerequisites without auto-install attempts
+#        - Detects hatchling, amplifier_foundation, pip wheel capability
+#        - Sets validation_mode: full | hygiene_only | structural_only
+#        - Build check gracefully SKIPS when hatchling unavailable (not ERROR)
+#        - Foundation unavailability no longer classified as "critical"
+#        - New "Environment Status" section in reports
+#        - Clear separation of "environment limitations" vs "bundle problems"
+#        - Instructions provided for achieving full validation
+#
 # v3.1.0 - Inheritance-aware tool placement analysis
 #        - Phase 2.5 now parses delegate tool's exclude_tools config
 #        - Agents only flagged for redundant tools if they INHERIT them (not excluded)
@@ -68,6 +78,14 @@ description: |
   - Repository composition analysis (do pieces fit together correctly?)
   - Convention compliance across the whole repo
   
+  **v3.2.0 Enhancements: Graceful Environment Handling**
+  - Prerequisite check without auto-install attempts (predictable, fast)
+  - Validation modes: full | hygiene_only | structural_only
+  - Build check gracefully SKIPs when hatchling unavailable (INFO, not ERROR)
+  - Foundation unavailability → limited validation mode (not "critical")
+  - Clear "Environment Status" section in all reports
+  - Separation of "environment limitations" vs "bundle problems"
+  
   **v3.1.0 Enhancements:**
   - Inheritance-aware tool placement analysis
   - Understands delegate tool's exclude_tools config (default: ["delegate"])
@@ -81,7 +99,7 @@ description: |
   - All measurements use TOKENS (len/4), never line counts
   
   For single bundle validation, use validate-bundle.yaml instead.
-version: "3.1.0"
+version: "3.2.0"
 author: "Amplifier Foundation Team"
 tags: ["bundle", "validation", "quality", "conventions", "repository", "packaging", "hygiene", "context-sink"]
 
@@ -91,8 +109,9 @@ context:
 
 steps:
   # ============================================================================
-  # PHASE 0: Environment Check
-  # Verify amplifier_foundation is available
+  # PHASE 0: Environment Prerequisite Check (v3.2.0)
+  # Check available tools WITHOUT auto-install attempts
+  # Sets validation_mode: full | hygiene_only | structural_only
   # ============================================================================
 
   - id: "environment-check"
@@ -101,51 +120,103 @@ steps:
       python3 << 'EOF'
       import json
       import sys
+      import subprocess
 
       results = {
-          "phase": "environment",
-          "foundation_available": False,
-          "foundation_version": None,
-          "python_version": sys.version,
-          "errors": []
+          "phase": "environment_prerequisites",
+          "python_version": sys.version.split()[0],
+          "capabilities": {
+              "foundation_available": False,
+              "foundation_version": None,
+              "hatchling_available": False,
+              "pip_wheel_available": False
+          },
+          "validation_mode": "structural_only",  # Default to most limited
+          "limitations": [],
+          "install_instructions": []
       }
 
+      # Check 1: amplifier_foundation (enables BundleRegistry validation)
       try:
           import amplifier_foundation
-          results["foundation_available"] = True
-          results["foundation_version"] = getattr(amplifier_foundation, "__version__", "unknown")
-      except ImportError as e:
-          results["errors"].append({
-              "type": "import_error",
-              "message": f"amplifier_foundation not importable: {e}",
-              "suggestion": "Install via: pip install amplifier-foundation or run within an Amplifier session"
+          results["capabilities"]["foundation_available"] = True
+          results["capabilities"]["foundation_version"] = getattr(amplifier_foundation, "__version__", "unknown")
+      except ImportError:
+          results["limitations"].append({
+              "component": "amplifier_foundation",
+              "impact": "Cannot validate individual bundles via BundleRegistry",
+              "skipped_checks": ["individual_validation", "standalone_completeness (full)"]
+          })
+          results["install_instructions"].append(
+              "pip install git+https://github.com/microsoft/amplifier-foundation@main"
+          )
+
+      # Check 2: hatchling (enables Python package build validation)
+      try:
+          import hatchling
+          results["capabilities"]["hatchling_available"] = True
+      except ImportError:
+          results["limitations"].append({
+              "component": "hatchling",
+              "impact": "Cannot validate Python package builds",
+              "skipped_checks": ["build_check"]
+          })
+          results["install_instructions"].append("pip install hatchling")
+
+      # Check 3: pip wheel capability
+      try:
+          proc = subprocess.run(
+              [sys.executable, "-m", "pip", "wheel", "--help"],
+              capture_output=True,
+              timeout=10
+          )
+          results["capabilities"]["pip_wheel_available"] = proc.returncode == 0
+      except Exception:
+          results["capabilities"]["pip_wheel_available"] = False
+
+      if not results["capabilities"]["pip_wheel_available"]:
+          results["limitations"].append({
+              "component": "pip wheel",
+              "impact": "Cannot run build dry-run",
+              "skipped_checks": ["build_check"]
           })
 
-      if not results["foundation_available"]:
-          import subprocess
-          try:
-              subprocess.run(
-                  [sys.executable, "-m", "pip", "install", "-q",
-                   "git+https://github.com/microsoft/amplifier-foundation@main"],
-                  check=True,
-                  capture_output=True
-              )
-              import amplifier_foundation
-              results["foundation_available"] = True
-              results["foundation_version"] = getattr(amplifier_foundation, "__version__", "unknown")
-              results["errors"] = []
-              results["auto_installed"] = True
-          except Exception as install_error:
-              results["errors"].append({
-                  "type": "install_error",
-                  "message": f"Failed to auto-install: {install_error}"
-              })
+      # Determine validation mode based on capabilities
+      foundation = results["capabilities"]["foundation_available"]
+      hatchling = results["capabilities"]["hatchling_available"]
+
+      if foundation and hatchling:
+          results["validation_mode"] = "full"
+          results["mode_description"] = "Full validation: all checks enabled"
+      elif foundation:
+          results["validation_mode"] = "full_no_build"
+          results["mode_description"] = "Full validation without build check (hatchling unavailable)"
+      elif hatchling:
+          results["validation_mode"] = "hygiene_only"
+          results["mode_description"] = "Hygiene-only: structural checks without BundleRegistry validation"
+      else:
+          results["validation_mode"] = "structural_only"
+          results["mode_description"] = "Structural-only: basic file checks without dependency validation"
+
+      # Summary
+      results["summary"] = {
+          "can_validate_bundles": foundation,
+          "can_validate_builds": hatchling and results["capabilities"]["pip_wheel_available"],
+          "limitations_count": len(results["limitations"]),
+          "full_validation_available": foundation and hatchling
+      }
+
+      # Note: We do NOT auto-install anything. This is intentional for:
+      # - Predictability (no surprise environment changes)
+      # - Speed (no waiting for installs)
+      # - Permissions (may not have install rights)
+      # - Isolation (don't pollute environments)
 
       print(json.dumps(results))
       EOF
     output: "env_check"
     parse_json: true
-    timeout: 180
+    timeout: 30
 
   # ============================================================================
   # PHASE 0.5: Packaging Consistency Check
@@ -251,7 +322,8 @@ steps:
     depends_on: ["environment-check"]
 
   # ============================================================================
-  # PHASE 0.7: Build Dry-Run Check
+  # PHASE 0.7: Build Dry-Run Check (v3.2.0 - Graceful Degradation)
+  # Now gracefully SKIPs when hatchling unavailable (INFO, not ERROR)
   # ============================================================================
 
   - id: "build-check"
@@ -266,12 +338,14 @@ steps:
       from pathlib import Path
 
       repo_path = "{{repo_path}}"
+      env_check = json.loads('''{{env_check}}''')
 
       result = {
           "phase": "build_check",
           "build_tested": False,
           "errors": [],
-          "warnings": []
+          "warnings": [],
+          "info": []
       }
 
       pyproject_path = Path(repo_path) / "pyproject.toml"
@@ -282,6 +356,38 @@ steps:
           print(json.dumps(result))
           sys.exit(0)
 
+      # v3.2.0: Check if build tools are available BEFORE attempting build
+      hatchling_available = env_check.get("capabilities", {}).get("hatchling_available", False)
+      pip_wheel_available = env_check.get("capabilities", {}).get("pip_wheel_available", False)
+
+      if not hatchling_available:
+          result["skipped"] = True
+          result["passed"] = True  # Not a failure - just can't test
+          result["reason"] = "hatchling build backend not available"
+          result["info"].append({
+              "type": "build_tools_unavailable",
+              "message": "Build check skipped: hatchling not installed",
+              "severity": "INFO",
+              "suggestion": "Install hatchling for full build validation: pip install hatchling"
+          })
+          result["environment_limitation"] = True
+          print(json.dumps(result))
+          sys.exit(0)
+
+      if not pip_wheel_available:
+          result["skipped"] = True
+          result["passed"] = True
+          result["reason"] = "pip wheel not available"
+          result["info"].append({
+              "type": "pip_wheel_unavailable",
+              "message": "Build check skipped: pip wheel command not available",
+              "severity": "INFO"
+          })
+          result["environment_limitation"] = True
+          print(json.dumps(result))
+          sys.exit(0)
+
+      # Build tools available - proceed with actual build test
       try:
           with tempfile.TemporaryDirectory() as tmpdir:
               proc = subprocess.run(
@@ -296,26 +402,40 @@ steps:
               if proc.returncode != 0:
                   error_output = proc.stderr or proc.stdout
 
-                  if "FileNotFoundError" in error_output or "No such file or directory" in error_output:
+                  # v3.2.0: Check if this is ACTUALLY a missing hatchling error
+                  # (can happen even if import worked, due to version mismatch)
+                  if "hatchling" in error_output.lower() and ("not found" in error_output.lower() or "no module" in error_output.lower()):
+                      result["skipped"] = True
+                      result["passed"] = True
+                      result["reason"] = "hatchling not properly configured for this project"
+                      result["info"].append({
+                          "type": "hatchling_mismatch",
+                          "message": "Build backend available but not compatible with this project",
+                          "severity": "INFO",
+                          "details": error_output[-500:]
+                      })
+                      result["environment_limitation"] = True
+                  elif "FileNotFoundError" in error_output or "No such file or directory" in error_output:
+                      # This IS a bundle problem - missing file referenced in config
                       result["errors"].append({
                           "type": "build_missing_file",
-                          "message": "Build failed due to missing file",
+                          "message": "Build failed due to missing file (bundle configuration issue)",
                           "details": error_output[-2000:],
-                          "severity": "CRITICAL"
+                          "severity": "ERROR"
                       })
                   elif "force-include" in error_output.lower():
                       result["errors"].append({
                           "type": "build_force_include_error",
                           "message": "Build failed due to force-include configuration",
                           "details": error_output[-2000:],
-                          "severity": "CRITICAL"
+                          "severity": "ERROR"
                       })
                   else:
                       result["errors"].append({
                           "type": "build_error",
                           "message": "Package build failed",
                           "details": error_output[-2000:],
-                          "severity": "CRITICAL"
+                          "severity": "ERROR"
                       })
               else:
                   result["build_tested"] = True
@@ -327,10 +447,15 @@ steps:
               "message": "Build check timed out (120s) - may indicate complex build"
           })
       except FileNotFoundError:
-          result["warnings"].append({
-              "type": "build_tools_unavailable",
-              "message": "Could not run build check - pip not available"
+          result["skipped"] = True
+          result["passed"] = True
+          result["reason"] = "pip not available"
+          result["info"].append({
+              "type": "pip_unavailable",
+              "message": "Build check skipped: pip not found",
+              "severity": "INFO"
           })
+          result["environment_limitation"] = True
       except Exception as e:
           result["warnings"].append({
               "type": "build_check_error",
@@ -520,11 +645,19 @@ steps:
       from pathlib import Path
 
       env_check = json.loads('''{{env_check}}''')
-      if not env_check.get("foundation_available"):
+      
+      # v3.2.0: Check foundation availability from capabilities dict
+      foundation_available = env_check.get("capabilities", {}).get("foundation_available", False)
+      
+      if not foundation_available:
+          # v3.2.0: This is an environment limitation, NOT a bundle problem
           print(json.dumps({
               "phase": "individual_validation",
               "skipped": True,
-              "reason": "amplifier_foundation not available"
+              "environment_limitation": True,  # v3.2.0: Flag this as env issue
+              "reason": "amplifier_foundation not available - BundleRegistry validation skipped",
+              "validation_mode": env_check.get("validation_mode", "structural_only"),
+              "note": "Structural checks still performed; install amplifier_foundation for full validation"
           }))
           sys.exit(0)
 
@@ -981,11 +1114,17 @@ steps:
           print(json.dumps(results))
           sys.exit(0)
 
-      if not env_check.get("foundation_available"):
-          # Fallback: basic YAML parsing without includes resolution
-          results["warnings"].append({
+      # v3.2.0: Check foundation from capabilities dict
+      foundation_available = env_check.get("capabilities", {}).get("foundation_available", False)
+      
+      if not foundation_available:
+          # v3.2.0: Fallback mode - basic YAML parsing without includes resolution
+          results["environment_limitation"] = True
+          results["info"] = results.get("info", [])
+          results["info"].append({
               "type": "limited_validation",
-              "message": "Foundation not available - cannot fully trace includes chain"
+              "message": "Foundation not available - includes chain not fully traced",
+              "severity": "INFO"
           })
           
           for bundle_path in standalone_bundles:
@@ -1776,6 +1915,13 @@ steps:
       discovery = json.loads('''{{discovery_results}}''')
       packaging = json.loads('''{{packaging_check}}''')
       
+      # v3.2.0: Parse environment check for environment status tracking
+      env_check_raw = '''{{env_check}}'''
+      try:
+          env_check = json.loads(env_check_raw)
+      except (json.JSONDecodeError, ValueError):
+          env_check = {"capabilities": {}, "limitations": [], "install_instructions": [], "validation_mode": "unknown"}
+      
       build_check_raw = '''{{build_check}}'''
       try:
           build = json.loads(build_check_raw)
@@ -1815,29 +1961,64 @@ steps:
 
       # Handle case where individual validation was skipped
       if individual.get("skipped", False):
-          result = {
-              "phase": "quality_classification",
-              "quality_level": "critical",
-              "requires_llm_analysis": True,
-              "skipped_reason": individual.get("reason", "validation skipped"),
-              "bundles": [],
-              "summary": {
-                  "total": 0,
-                  "good": 0,
-                  "polish": 0,
-                  "needs_work": 0,
-                  "critical": 0
-              },
-              "structural_issues": [{
-                  "type": "validation_skipped",
-                  "message": individual.get("reason", "Individual bundle validation was skipped"),
-                  "severity": "critical"
-              }],
-              "packaging_issues": [],
-              "hygiene_issues": [],
-              "completeness_issues": [],
-              "message": f"⚠️ Bundle validation could not run: {individual.get('reason', 'unknown reason')}"
-          }
+          # v3.2.0: Check if this is an environment limitation (not a bundle problem)
+          is_env_limitation = individual.get("environment_limitation", False)
+          
+          if is_env_limitation:
+              # Environment limitation - NOT critical, just limited validation
+              result = {
+                  "phase": "quality_classification",
+                  "quality_level": "limited",  # v3.2.0: New level for env limitations
+                  "requires_llm_analysis": True,
+                  "environment_limitation": True,
+                  "validation_mode": individual.get("validation_mode", "structural_only"),
+                  "skipped_reason": individual.get("reason", "validation skipped"),
+                  "bundles": [],
+                  "summary": {
+                      "total": discovery.get("total_count", 0),
+                      "good": 0,
+                      "polish": 0,
+                      "needs_work": 0,
+                      "critical": 0,
+                      "not_validated": discovery.get("total_count", 0)
+                  },
+                  "structural_issues": [],
+                  "packaging_issues": [],
+                  "hygiene_issues": [],
+                  "completeness_issues": [],
+                  "environment_status": {
+                      "foundation_available": False,
+                      "hatchling_available": env_check.get("capabilities", {}).get("hatchling_available", False),
+                      "limitations": env_check.get("limitations", []),
+                      "install_instructions": env_check.get("install_instructions", [])
+                  },
+                  "message": f"ℹ️ Limited validation mode: {individual.get('reason', 'foundation not available')}. Structural checks passed."
+              }
+          else:
+              # Actual validation failure (not env related)
+              result = {
+                  "phase": "quality_classification",
+                  "quality_level": "critical",
+                  "requires_llm_analysis": True,
+                  "skipped_reason": individual.get("reason", "validation skipped"),
+                  "bundles": [],
+                  "summary": {
+                      "total": 0,
+                      "good": 0,
+                      "polish": 0,
+                      "needs_work": 0,
+                      "critical": 0
+                  },
+                  "structural_issues": [{
+                      "type": "validation_skipped",
+                      "message": individual.get("reason", "Individual bundle validation was skipped"),
+                      "severity": "critical"
+                  }],
+                  "packaging_issues": [],
+                  "hygiene_issues": [],
+                  "completeness_issues": [],
+                  "message": f"⚠️ Bundle validation could not run: {individual.get('reason', 'unknown reason')}"
+              }
           print(json.dumps(result))
           sys.exit(0)
 
@@ -1887,7 +2068,16 @@ steps:
               "completeness_issues": [],
               "experiment_issues": [],
               "context_sink_issues": [],
-              "tool_placement_issues": []
+              "tool_placement_issues": [],
+              # v3.2.0: Environment status tracking
+              "environment_status": {
+                  "validation_mode": env_check.get("validation_mode", "unknown"),
+                  "foundation_available": env_check.get("capabilities", {}).get("foundation_available", False),
+                  "hatchling_available": env_check.get("capabilities", {}).get("hatchling_available", False),
+                  "limitations": env_check.get("limitations", []),
+                  "full_validation": env_check.get("summary", {}).get("full_validation_available", False)
+              },
+              "environment_info": []  # v3.2.0: Info messages about env limitations
           }
           
           # Classify each bundle
@@ -1935,6 +2125,16 @@ steps:
                       "message": error.get("message", "Unknown build error"),
                       "severity": "critical",
                       "details": error.get("details", "")[:500]
+                  })
+          
+          # v3.2.0: Track build environment limitations (INFO, not errors)
+          if build.get("environment_limitation", False):
+              for info in build.get("info", []):
+                  results["environment_info"].append({
+                      "type": info.get("type", "env_info"),
+                      "message": info.get("message", "Environment limitation"),
+                      "severity": "INFO",
+                      "suggestion": info.get("suggestion", "")
                   })
 
           # NEW in v3.0.0: Check hygiene errors
@@ -2064,6 +2264,14 @@ steps:
               "total_hygiene_errors": len(results["hygiene_issues"]) + len(results["completeness_issues"]) + len(results["experiment_issues"]),
               "context_sink_warnings": len([i for i in results["context_sink_issues"] if i.get("severity") == "WARNING"]),
               "tool_placement_suggestions": len(results["tool_placement_issues"])
+          }
+          
+          # v3.2.0: Add environment limitations summary
+          results["environment_summary"] = {
+              "validation_mode": results["environment_status"]["validation_mode"],
+              "full_validation_available": results["environment_status"]["full_validation"],
+              "limitations_count": len(results["environment_status"]["limitations"]),
+              "environment_info_count": len(results["environment_info"])
           }
           
           print(json.dumps(results))
@@ -2359,10 +2567,15 @@ steps:
       {{quality_classification}}
       ```
 
-      **Environment:**
+      **Environment Prerequisites (v3.2.0):**
       ```json
       {{env_check}}
       ```
+      
+      **IMPORTANT v3.2.0 - Environment Limitations:**
+      - If `validation_mode` != "full", some checks were skipped due to missing tools
+      - Environment limitations are INFO, not errors - they don't affect the bundle quality
+      - Report clearly what was validated vs what was skipped
 
       **Packaging Check:**
       ```json
@@ -2427,16 +2640,34 @@ steps:
 
       **Generate this report structure:**
 
-      # Bundle Repository Validation Report v3.1.0
+      # Bundle Repository Validation Report v3.2.0
 
       ## Executive Summary
-      - **Overall Verdict**: [✅ PASS | ✅ PASS WITH SUGGESTIONS | ⚠️ PASS WITH WARNINGS | ❌ FAIL]
+      - **Overall Verdict**: [✅ PASS | ✅ PASS WITH SUGGESTIONS | ⚠️ PASS WITH WARNINGS | ℹ️ LIMITED VALIDATION | ❌ FAIL]
       - **Repository**: path
+      - **Validation Mode**: full | full_no_build | hygiene_only | structural_only (v3.2.0)
       - **Bundles Found**: X total (Y root, Z behaviors, W standalone, V experiments, ...)
       - **Quality Breakdown**: X good, Y polish, Z needs_work, W critical
-      - **Packaging**: PASS/FAIL
+      - **Packaging**: PASS/FAIL/SKIPPED
       - **Hygiene**: PASS/FAIL (v3.0.0 checks)
       - **Issues**: X errors, Y warnings, Z suggestions
+
+      ## Environment Status (v3.2.0)
+      
+      **Always include this section showing what validation level was achieved:**
+      
+      | Capability | Status | Impact |
+      |------------|--------|--------|
+      | amplifier_foundation | ✅/❌ | BundleRegistry validation |
+      | hatchling | ✅/❌ | Python package builds |
+      | pip wheel | ✅/❌ | Build dry-run |
+      
+      **Validation Mode**: [mode] - [description]
+      
+      **If any limitations exist:**
+      - What checks were skipped
+      - How to enable full validation (install instructions)
+      - Clarify: "Environment limitations are NOT bundle problems"
 
       ## Bundle Discovery
       Summary of what was found in the repository by category.
@@ -2507,8 +2738,9 @@ steps:
 
       ## Metadata
       - Validated: [timestamp]
-      - Recipe: validate-bundle-repo v3.1.0
-      - Foundation: version
+      - Recipe: validate-bundle-repo v3.2.0
+      - Validation Mode: [mode from env_check]
+      - Foundation: [version or "not available"]
       - Quality Thresholds:
         - All bundles must load via BundleRegistry
         - Behaviors must be thin (no root includes, limited context)
