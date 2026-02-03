@@ -1,32 +1,27 @@
 # validate-bundle-repo.yaml
-# Repository-Wide Bundle Validator Recipe v2.1.0
-# Validates an entire bundle repository against structural requirements and conventions
+# Repository-Wide Bundle Validator Recipe v3.0.0
+# Validates an entire bundle repository against structural requirements, conventions,
+# and Amplifier bundle philosophy (context sink pattern, thin behaviors, tool placement)
 #
 # CHANGELOG:
+# v3.0.0 - Major upgrade with comprehensive bundle hygiene validation
+#        - Enhanced Phase 1: Separate tracking for behaviors/standalone/experiments/root
+#        - Phase 2.1: Behavior Hygiene Validation (no root includes, no session config, context limits)
+#        - Phase 2.2: Standalone Completeness Validation (orchestrator + context required)
+#        - Phase 2.3: Experiments Validation (naming, completeness, EXPERIMENTAL warning)
+#        - Phase 2.4: Context Sink Compliance (root bundle context bloat detection)
+#        - Phase 2.5: Tool Placement Analysis (universal vs capability vs specialized)
+#        - Enhanced quality classification incorporating all new phases
+#        - Enhanced final report with new validation sections
+#        - CRITICAL: All size measurements use TOKENS (len/4), never lines
+#
 # v2.1.0 - Added Python packaging validation phases
 #        - Phase 0.5: packaging-check (pyproject.toml force-includes)
 #        - Phase 0.7: build-check (dry-run pip wheel)
-#        - Catches missing directories referenced in build config
-#        - Prevents "renamed directory but forgot pyproject.toml" bugs
 #
-# v2.0.1 - Fixed undefined variable error when foundation not available
-#        - quality-classification now handles skipped individual_validation
-#        - Returns critical quality_level with appropriate messaging
-#        - Downstream steps receive valid (if empty) data structure
-#
-# v2.0.0 - Major upgrade applying validate-agents v1.2.4 patterns
-#        - Added explicit PASS thresholds (knows when to stop)
-#        - Added deterministic quality classification (Phase 2.5)
-#        - Added conditional LLM execution (skip when all bundles good)
-#        - Added quick-approval path with claude-haiku
-#        - Added "What is NOT an Issue" guidance to prevent nitpicking
-#        - Added default values for skipped phases (Phase 2.75)
-#        - Fixed JSON interpolation bug (json.loads instead of direct)
-#        - Added optional agent validation integration placeholder
+# v2.0.0 - Added explicit PASS thresholds and deterministic quality classification
 #
 # v1.0.0 - Initial release
-#        - Discovery, individual validation, composition analysis
-#        - Convention compliance checking
 #
 # PASS THRESHOLDS (explicit criteria for "passing"):
 # 1. All bundles load without errors (BundleRegistry succeeds)
@@ -35,53 +30,47 @@
 # 4. No broken cross-bundle references (includes resolve)
 # 5. Consistent namespace across bundles (if multiple bundles)
 # 6. Python packaging builds successfully (if pyproject.toml present)
+# 7. Behaviors don't include root bundles (context sink anti-pattern)
+# 8. Behaviors have reasonable context.include token counts (<2000 ERROR, <1000 WARNING)
+# 9. Standalone bundles in /bundles/ have complete session configuration
+# 10. Experimental bundles follow naming conventions
 #
 # QUALITY LEVELS:
-# - good: All bundles load, no errors, no orphans, proper structure
-# - polish: All load but has warnings (missing descriptions, conventions)
-# - needs_work: Orphan agents, missing root, convention issues
+# - good: All bundles load, no errors, no orphans, proper structure, philosophy aligned
+# - polish: All load but has warnings (missing descriptions, conventions, minor hygiene)
+# - needs_work: Orphan agents, missing root, convention issues, hygiene violations
 # - critical: Any bundle fails to load OR Python package fails to build
 #
-# This recipe:
-# 1. Discovers all bundles in a repo (root, behaviors, standalone, providers)
-# 2. Validates Python packaging (pyproject.toml force-includes, build check)
-# 3. Validates each bundle individually
-# 4. Classifies overall quality (DETERMINISTIC - before LLM)
-# 5. Quick-approves clean repos OR runs detailed analysis
-# 6. Validates repo composition (conditional on quality)
-# 7. Produces a comprehensive repo-level report
-#
-# Usage:
-#   amplifier tool invoke recipes operation=execute \
-#     recipe_path=foundation:recipes/validate-bundle-repo.yaml \
-#     context='{"repo_path": "/path/to/my-bundle-repo"}'
+# TOKEN ESTIMATION:
+# All size measurements use tokens estimated as: len(content) // 4
+# This provides consistent sizing regardless of line length variations.
 
 name: validate-bundle-repo
 description: |
   Validates an entire Amplifier bundle repository including:
-  - Discovery of all bundle files (root, behaviors, standalone, providers)
+  - Discovery of all bundle files (root, behaviors, standalone, experiments, providers)
   - Python packaging validation (pyproject.toml force-includes, build check)
   - Individual validation of each bundle via BundleRegistry
+  - **NEW in v3.0.0:** Behavior hygiene validation (no root includes, context limits)
+  - **NEW in v3.0.0:** Standalone bundle completeness validation
+  - **NEW in v3.0.0:** Experiments validation (naming, completeness)
+  - **NEW in v3.0.0:** Context sink compliance (root bundle context bloat)
+  - **NEW in v3.0.0:** Tool placement analysis (universal vs specialized)
   - Deterministic quality classification with explicit PASS thresholds
   - Quick-approval path for clean repos (no unnecessary LLM analysis)
   - Repository composition analysis (do pieces fit together correctly?)
   - Convention compliance across the whole repo
   
-  **v2.1.0 Improvements:**
-  - Python packaging validation (catches pyproject.toml mismatches)
-  - Build dry-run check (catches hatchling/setuptools errors early)
-  
-  **v2.0.0 Improvements:**
-  - Deterministic quality classification before LLM analysis
-  - Explicit PASS thresholds - no more "always finding something"
-  - Quick-approval path for repos that meet all standards
-  - LLM phases only run when genuinely needed
-  - Optional agent validation integration
+  **v3.0.0 Philosophy Alignment:**
+  - Enforces context sink pattern (heavy context → agents, not root/behaviors)
+  - Enforces thin behavior pattern (behaviors should be small, focused)
+  - Enforces tool placement philosophy (universal → root, specialized → agents)
+  - All measurements use TOKENS (len/4), never line counts
   
   For single bundle validation, use validate-bundle.yaml instead.
-version: "2.1.0"
+version: "3.0.0"
 author: "Amplifier Foundation Team"
-tags: ["bundle", "validation", "quality", "conventions", "repository", "packaging"]
+tags: ["bundle", "validation", "quality", "conventions", "repository", "packaging", "hygiene", "context-sink"]
 
 context:
   repo_path: ""  # Required: Path to bundle repository root
@@ -148,7 +137,6 @@ steps:
   # ============================================================================
   # PHASE 0.5: Packaging Consistency Check
   # Verify pyproject.toml force-includes reference existing directories
-  # This catches the "renamed directory but forgot pyproject.toml" bug
   # ============================================================================
 
   - id: "packaging-check"
@@ -180,11 +168,9 @@ steps:
 
       result["has_pyproject"] = True
 
-      # Python 3.11+ has tomllib built-in
       try:
           import tomllib
       except ImportError:
-          # Fallback for older Python
           try:
               import tomli as tomllib
           except ImportError:
@@ -192,7 +178,7 @@ steps:
                   "type": "missing_toml_parser",
                   "message": "Cannot parse pyproject.toml - tomllib/tomli not available"
               })
-              result["passed"] = True  # Can't check, don't fail
+              result["passed"] = True
               print(json.dumps(result))
               sys.exit(0)
 
@@ -209,7 +195,6 @@ steps:
           print(json.dumps(result))
           sys.exit(0)
 
-      # Check hatchling force-includes
       force_includes = (config.get("tool", {})
                              .get("hatch", {})
                              .get("build", {})
@@ -231,11 +216,9 @@ steps:
                   "fix": f"Either create '{source_path}' or remove/update the force-include entry"
               })
 
-      # Check setuptools package-data or data-files if present
       package_data = config.get("tool", {}).get("setuptools", {}).get("package-data", {})
       for package, patterns in package_data.items():
           for pattern in patterns:
-              # Basic check - if it's a specific path (not a glob), verify it exists
               if "*" not in pattern and "?" not in pattern:
                   full_path = Path(repo_path) / pattern
                   if not full_path.exists():
@@ -256,8 +239,6 @@ steps:
 
   # ============================================================================
   # PHASE 0.7: Build Dry-Run Check
-  # Actually attempt a dry-run pip install to catch build issues
-  # Only runs if pyproject.toml exists
   # ============================================================================
 
   - id: "build-check"
@@ -288,12 +269,8 @@ steps:
           print(json.dumps(result))
           sys.exit(0)
 
-      # Try a dry-run build using pip wheel with --no-build-isolation for speed
-      # This catches hatchling/setuptools build errors without actually installing
       try:
-          # Create a temp directory for the wheel output
           with tempfile.TemporaryDirectory() as tmpdir:
-              # Try pip wheel which does a full build check
               proc = subprocess.run(
                   [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
                    "-w", tmpdir, repo_path],
@@ -304,15 +281,13 @@ steps:
               )
 
               if proc.returncode != 0:
-                  # Extract relevant error from output
                   error_output = proc.stderr or proc.stdout
 
-                  # Look for common patterns
                   if "FileNotFoundError" in error_output or "No such file or directory" in error_output:
                       result["errors"].append({
                           "type": "build_missing_file",
                           "message": "Build failed due to missing file",
-                          "details": error_output[-2000:],  # Last 2000 chars
+                          "details": error_output[-2000:],
                           "severity": "CRITICAL"
                       })
                   elif "force-include" in error_output.lower():
@@ -339,7 +314,6 @@ steps:
               "message": "Build check timed out (120s) - may indicate complex build"
           })
       except FileNotFoundError:
-          # pip not available in expected way
           result["warnings"].append({
               "type": "build_tools_unavailable",
               "message": "Could not run build check - pip not available"
@@ -358,7 +332,6 @@ steps:
     timeout: 180
     depends_on: ["packaging-check"]
 
-  # Set default for build_check if packaging check skipped (no pyproject.toml)
   - id: "set-default-build-check"
     type: "bash"
     condition: "{{packaging_check.has_pyproject}} != true"
@@ -379,8 +352,9 @@ steps:
     depends_on: ["packaging-check"]
 
   # ============================================================================
-  # PHASE 1: Repository Discovery
-  # Find all bundle files in the repository
+  # PHASE 1: Enhanced Repository Discovery
+  # Find all bundle files with separate tracking for each category
+  # NEW in v3.0.0: Separate experiments tracking, token-based size analysis
   # ============================================================================
 
   - id: "repo-discovery"
@@ -390,19 +364,25 @@ steps:
       import json
       from pathlib import Path
 
+      def estimate_tokens(content: str) -> int:
+          """Estimate token count as len(content) // 4."""
+          return len(content) // 4
+
       def discover_bundles(repo_path: str) -> dict:
-          """Discover all bundle files in a repository."""
+          """Discover all bundle files in a repository with enhanced categorization."""
           results = {
               "phase": "discovery",
               "repo_path": repo_path,
               "bundles_found": {
                   "root": [],
                   "behaviors": [],
-                  "standalone": [],
+                  "standalone": [],  # /bundles/ directory
+                  "experiments": [],  # /experiments/ directory - NEW in v3.0.0
                   "providers": [],
                   "agents": [],
                   "other": []
               },
+              "bundle_details": {},  # path -> {size_bytes, size_tokens, ...}
               "total_count": 0,
               "repo_structure": {},
               "errors": []
@@ -426,16 +406,37 @@ steps:
               print(json.dumps(results))
               return results
 
+          def get_bundle_details(bundle_path: Path) -> dict:
+              """Get details about a bundle file including token count."""
+              try:
+                  content = bundle_path.read_text()
+                  return {
+                      "path": str(bundle_path),
+                      "size_bytes": len(content),
+                      "size_tokens": estimate_tokens(content),
+                      "filename": bundle_path.name,
+                      "parent_dir": bundle_path.parent.name
+                  }
+              except Exception as e:
+                  return {
+                      "path": str(bundle_path),
+                      "size_bytes": 0,
+                      "size_tokens": 0,
+                      "error": str(e)
+                  }
+
           # Check for root bundle
           for name in ["bundle.md", "bundle.yaml"]:
               root_bundle = path / name
               if root_bundle.exists():
                   results["bundles_found"]["root"].append(str(root_bundle))
+                  results["bundle_details"][str(root_bundle)] = get_bundle_details(root_bundle)
 
-          # Scan conventional directories
+          # Scan conventional directories with separate categories
           scan_dirs = {
               "behaviors": "behaviors",
               "standalone": "bundles",
+              "experiments": "experiments",  # NEW in v3.0.0
               "providers": "providers",
               "agents": "agents"
           }
@@ -446,18 +447,21 @@ steps:
                   for item in dir_path.iterdir():
                       if item.is_file() and item.suffix in [".md", ".yaml", ".yml"]:
                           results["bundles_found"][category].append(str(item))
+                          results["bundle_details"][str(item)] = get_bundle_details(item)
                       elif item.is_dir():
                           # Check for bundle inside subdirectory
                           for sub_name in ["bundle.md", "bundle.yaml"]:
                               sub_bundle = item / sub_name
                               if sub_bundle.exists():
                                   results["bundles_found"][category].append(str(sub_bundle))
+                                  results["bundle_details"][str(sub_bundle)] = get_bundle_details(sub_bundle)
 
           # Map repo structure
           results["repo_structure"] = {
               "has_root_bundle": len(results["bundles_found"]["root"]) > 0,
               "has_behaviors": len(results["bundles_found"]["behaviors"]) > 0,
               "has_standalone": len(results["bundles_found"]["standalone"]) > 0,
+              "has_experiments": len(results["bundles_found"]["experiments"]) > 0,
               "has_providers": len(results["bundles_found"]["providers"]) > 0,
               "has_agents": len(results["bundles_found"]["agents"]) > 0,
               "directories": [d.name for d in path.iterdir() if d.is_dir() and not d.name.startswith(".")]
@@ -466,6 +470,17 @@ steps:
           # Count totals
           for category, bundles in results["bundles_found"].items():
               results["total_count"] += len(bundles)
+
+          # Summary statistics
+          results["summary"] = {
+              "root_count": len(results["bundles_found"]["root"]),
+              "behaviors_count": len(results["bundles_found"]["behaviors"]),
+              "standalone_count": len(results["bundles_found"]["standalone"]),
+              "experiments_count": len(results["bundles_found"]["experiments"]),
+              "providers_count": len(results["bundles_found"]["providers"]),
+              "agents_count": len(results["bundles_found"]["agents"]),
+              "total_tokens": sum(d.get("size_tokens", 0) for d in results["bundle_details"].values())
+          }
 
           print(json.dumps(results))
           return results
@@ -491,7 +506,6 @@ steps:
       import sys
       from pathlib import Path
 
-      # FIX: Use json.loads() to properly handle JSON booleans (true/false vs True/False)
       env_check = json.loads('''{{env_check}}''')
       if not env_check.get("foundation_available"):
           print(json.dumps({
@@ -509,7 +523,6 @@ steps:
           BundleValidationError
       )
 
-      # FIX: Use json.loads() for JSON boolean handling
       discovery = json.loads('''{{discovery_results}}''')
       
       async def validate_bundle(bundle_path: str, category: str) -> dict:
@@ -531,7 +544,7 @@ steps:
               bundle = await registry._load_single(
                   uri,
                   auto_register=True,
-                  auto_include=False  # Don't follow includes for individual check
+                  auto_include=False
               )
 
               result["name"] = bundle.name
@@ -544,7 +557,6 @@ steps:
               if not bundle.name:
                   result["warnings"].append("Missing bundle.name")
               
-              # Check for description (quality indicator)
               if not getattr(bundle, 'description', None):
                   result["warnings"].append("Missing bundle description")
 
@@ -614,10 +626,987 @@ steps:
     depends_on: ["repo-discovery"]
 
   # ============================================================================
-  # PHASE 2.5: Quality Classification (Deterministic)
-  # Classify overall repo quality to determine if LLM analysis is needed
-  # This is the key v2.0.0 addition - explicit PASS thresholds
-  # Updated in v2.1.0 to include packaging errors
+  # PHASE 2.1: Behavior Hygiene Validation (NEW in v3.0.0)
+  # Validates bundles in /behaviors/ against hygiene rules:
+  # - No includes to root bundles (anti-pattern)
+  # - No session.orchestrator (behavior shouldn't be standalone)
+  # - No providers (behavior shouldn't define providers)
+  # - context.include total tokens < 2000 (ERROR) / < 1000 (WARNING)
+  # - context.include file count <= 3 (WARNING if >3)
+  # - Tool count <= 2 (WARNING if >2)
+  # ============================================================================
+
+  - id: "behavior-hygiene-validation"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      import re
+      import sys
+      from pathlib import Path
+
+      def estimate_tokens(content: str) -> int:
+          """Estimate token count as len(content) // 4."""
+          return len(content) // 4
+
+      def parse_yaml_bundle(path: Path) -> dict:
+          """Parse a bundle file (YAML or MD with YAML frontmatter)."""
+          try:
+              content = path.read_text()
+              
+              # Handle markdown with YAML frontmatter
+              if path.suffix == '.md':
+                  # Extract YAML from frontmatter (between --- markers)
+                  match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+                  if match:
+                      yaml_content = match.group(1)
+                  else:
+                      return {"error": "No YAML frontmatter found"}
+              else:
+                  yaml_content = content
+              
+              # Try to parse YAML
+              try:
+                  import yaml
+                  return yaml.safe_load(yaml_content) or {}
+              except ImportError:
+                  # Fallback: basic regex parsing for key fields
+                  result = {}
+                  
+                  # Check for session.orchestrator
+                  if re.search(r'^\s*orchestrator:', yaml_content, re.MULTILINE):
+                      result["session"] = {"orchestrator": True}
+                  
+                  # Check for providers
+                  if re.search(r'^providers:', yaml_content, re.MULTILINE):
+                      result["providers"] = [{}]
+                  
+                  # Check for includes
+                  includes_match = re.search(r'^includes:\s*\n((?:\s+-.*\n)*)', yaml_content, re.MULTILINE)
+                  if includes_match:
+                      includes_section = includes_match.group(1)
+                      result["includes"] = re.findall(r'-\s*bundle:\s*(.+)', includes_section)
+                  
+                  # Check context.include
+                  context_match = re.search(r'^context:\s*\n((?:\s+.*\n)*)', yaml_content, re.MULTILINE)
+                  if context_match:
+                      context_section = context_match.group(1)
+                      include_match = re.search(r'include:\s*\n((?:\s+-.*\n)*)', context_section)
+                      if include_match:
+                          includes = re.findall(r'-\s*(.+)', include_match.group(1))
+                          result["context"] = {"include": includes}
+                  
+                  # Check tools
+                  tools_match = re.search(r'^tools:\s*\n((?:\s+-.*\n)*)', yaml_content, re.MULTILINE)
+                  if tools_match:
+                      tools_section = tools_match.group(1)
+                      result["tools"] = [{}] * len(re.findall(r'-\s*module:', tools_section))
+                  
+                  return result
+              
+          except Exception as e:
+              return {"error": str(e)}
+
+      def is_root_bundle_reference(include_ref: str, repo_path: Path) -> bool:
+          """Check if an include reference points to a root bundle."""
+          # Known root bundles patterns
+          root_patterns = [
+              r'^foundation$',  # Just "foundation"
+              r'amplifier-foundation(@|$)',  # GitHub reference to foundation
+              r'bundle\.md$',  # Direct reference to bundle.md
+              r'bundle\.yaml$',  # Direct reference to bundle.yaml
+              r'^file://.*bundle\.(md|yaml)$',  # File URI to root bundle
+          ]
+          
+          for pattern in root_patterns:
+              if re.search(pattern, include_ref):
+                  return True
+          
+          # Check if it's a reference to repo's own root bundle
+          if 'bundle:' in include_ref:
+              # Extract bundle name
+              bundle_name = include_ref.replace('bundle:', '').strip()
+              # Check if this resolves to repo root
+              for ext in ['.md', '.yaml']:
+                  if (repo_path / f"bundle{ext}").exists():
+                      return bundle_name == '' or bundle_name == repo_path.name
+          
+          return False
+
+      def validate_behaviors(repo_path: str) -> dict:
+          """Validate all behaviors against hygiene rules."""
+          results = {
+              "phase": "behavior_hygiene",
+              "behaviors_checked": 0,
+              "errors": [],
+              "warnings": [],
+              "info": [],
+              "behavior_details": []
+          }
+
+          path = Path(repo_path).resolve()
+          behaviors_dir = path / "behaviors"
+
+          if not behaviors_dir.exists():
+              results["skipped"] = True
+              results["passed"] = True
+              results["reason"] = "No behaviors/ directory"
+              print(json.dumps(results))
+              return results
+
+          # Collect all behavior files
+          behavior_files = []
+          for item in behaviors_dir.iterdir():
+              if item.is_file() and item.suffix in [".md", ".yaml", ".yml"]:
+                  behavior_files.append(item)
+              elif item.is_dir():
+                  for sub_name in ["bundle.md", "bundle.yaml"]:
+                      sub_bundle = item / sub_name
+                      if sub_bundle.exists():
+                          behavior_files.append(sub_bundle)
+
+          for behavior_path in behavior_files:
+              results["behaviors_checked"] += 1
+              behavior_name = behavior_path.stem if behavior_path.name not in ["bundle.md", "bundle.yaml"] else behavior_path.parent.name
+              
+              detail = {
+                  "path": str(behavior_path),
+                  "name": behavior_name,
+                  "issues": []
+              }
+
+              # Parse the bundle
+              bundle_data = parse_yaml_bundle(behavior_path)
+              
+              if "error" in bundle_data:
+                  results["warnings"].append({
+                      "behavior": behavior_name,
+                      "type": "parse_error",
+                      "message": f"Could not parse behavior: {bundle_data['error']}"
+                  })
+                  detail["parse_error"] = bundle_data["error"]
+                  results["behavior_details"].append(detail)
+                  continue
+
+              # Rule 1: Check for root bundle includes (ERROR)
+              includes = bundle_data.get("includes", [])
+              if isinstance(includes, list):
+                  for inc in includes:
+                      if isinstance(inc, dict):
+                          bundle_ref = inc.get("bundle", "")
+                      else:
+                          bundle_ref = str(inc)
+                      
+                      if is_root_bundle_reference(bundle_ref, path):
+                          results["errors"].append({
+                              "behavior": behavior_name,
+                              "type": "includes_root_bundle",
+                              "message": f"Behavior includes root bundle '{bundle_ref}' - anti-pattern",
+                              "severity": "ERROR",
+                              "fix": "Behaviors should not include root bundles. Extract shared functionality to a separate behavior."
+                          })
+                          detail["issues"].append("includes_root_bundle")
+
+              # Rule 2: Check for session.orchestrator (ERROR)
+              session = bundle_data.get("session", {})
+              if isinstance(session, dict) and session.get("orchestrator"):
+                  results["errors"].append({
+                      "behavior": behavior_name,
+                      "type": "has_session_orchestrator",
+                      "message": "Behavior defines session.orchestrator - behaviors should not be standalone",
+                      "severity": "ERROR",
+                      "fix": "Remove session.orchestrator. If this needs to be standalone, move to /bundles/"
+                  })
+                  detail["issues"].append("has_session_orchestrator")
+
+              # Rule 3: Check for providers (ERROR)
+              providers = bundle_data.get("providers", [])
+              if providers:
+                  results["errors"].append({
+                      "behavior": behavior_name,
+                      "type": "has_providers",
+                      "message": f"Behavior defines {len(providers)} provider(s) - behaviors should not define providers",
+                      "severity": "ERROR",
+                      "fix": "Remove providers. Providers should be in /providers/ or the root bundle."
+                  })
+                  detail["issues"].append("has_providers")
+
+              # Rule 4: Check context.include token count
+              context = bundle_data.get("context", {})
+              context_includes = []
+              if isinstance(context, dict):
+                  context_includes = context.get("include", [])
+              
+              total_context_tokens = 0
+              if context_includes:
+                  detail["context_include_count"] = len(context_includes)
+                  
+                  # Estimate tokens for each included file
+                  for include_ref in context_includes:
+                      if isinstance(include_ref, str):
+                          # Try to resolve and read the file
+                          include_path = None
+                          if include_ref.startswith("@"):
+                              # Bundle reference - can't easily resolve without registry
+                              # Estimate ~500 tokens per awareness file
+                              total_context_tokens += 500
+                          else:
+                              # Relative path
+                              include_path = behavior_path.parent / include_ref
+                              if not include_path.exists():
+                                  include_path = path / include_ref
+                              
+                              if include_path and include_path.exists():
+                                  try:
+                                      content = include_path.read_text()
+                                      total_context_tokens += estimate_tokens(content)
+                                  except:
+                                      total_context_tokens += 500  # Default estimate
+                              else:
+                                  total_context_tokens += 500
+                  
+                  detail["context_total_tokens"] = total_context_tokens
+                  
+                  # ERROR: >2000 tokens
+                  if total_context_tokens > 2000:
+                      results["errors"].append({
+                          "behavior": behavior_name,
+                          "type": "context_tokens_excessive",
+                          "message": f"context.include totals ~{total_context_tokens} tokens (>2000 ERROR threshold)",
+                          "severity": "ERROR",
+                          "fix": "Move heavy context to agents (context sink pattern). Behaviors should have minimal awareness-only context."
+                      })
+                      detail["issues"].append("context_tokens_excessive")
+                  # WARNING: >1000 tokens
+                  elif total_context_tokens > 1000:
+                      results["warnings"].append({
+                          "behavior": behavior_name,
+                          "type": "context_tokens_high",
+                          "message": f"context.include totals ~{total_context_tokens} tokens (>1000 WARNING threshold)",
+                          "severity": "WARNING",
+                          "fix": "Consider moving heavy context to agents. Behaviors should be thin."
+                      })
+                      detail["issues"].append("context_tokens_high")
+
+                  # WARNING: >3 include files
+                  if len(context_includes) > 3:
+                      results["warnings"].append({
+                          "behavior": behavior_name,
+                          "type": "context_include_count_high",
+                          "message": f"context.include has {len(context_includes)} files (>3 threshold)",
+                          "severity": "WARNING",
+                          "fix": "Consolidate context includes or move to agents."
+                      })
+                      detail["issues"].append("context_include_count_high")
+
+              # Rule 5: Check tool count (WARNING if >2)
+              tools = bundle_data.get("tools", [])
+              if tools and len(tools) > 2:
+                  results["warnings"].append({
+                      "behavior": behavior_name,
+                      "type": "tool_count_high",
+                      "message": f"Behavior defines {len(tools)} tools (>2 threshold)",
+                      "severity": "WARNING",
+                      "fix": "Consider moving specialized tools behind agents."
+                  })
+                  detail["issues"].append("tool_count_high")
+              
+              detail["tool_count"] = len(tools) if tools else 0
+              results["behavior_details"].append(detail)
+
+          results["passed"] = len(results["errors"]) == 0
+          results["summary"] = {
+              "behaviors_checked": results["behaviors_checked"],
+              "errors": len(results["errors"]),
+              "warnings": len(results["warnings"]),
+              "clean_behaviors": results["behaviors_checked"] - len(set(e["behavior"] for e in results["errors"]))
+          }
+
+          print(json.dumps(results))
+          return results
+
+      validate_behaviors("{{repo_path}}")
+      EOF
+    output: "behavior_hygiene_results"
+    parse_json: true
+    timeout: 120
+    depends_on: ["validate-all-bundles"]
+
+  # ============================================================================
+  # PHASE 2.2: Standalone Completeness Validation (NEW in v3.0.0)
+  # Validates bundles in /bundles/ have complete session configuration
+  # (orchestrator + context module) either directly or via includes chain
+  # ============================================================================
+
+  - id: "standalone-completeness-validation"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import asyncio
+      import json
+      import re
+      import sys
+      from pathlib import Path
+
+      env_check = json.loads('''{{env_check}}''')
+      discovery = json.loads('''{{discovery_results}}''')
+
+      results = {
+          "phase": "standalone_completeness",
+          "bundles_checked": 0,
+          "errors": [],
+          "warnings": [],
+          "bundle_details": []
+      }
+
+      standalone_bundles = discovery.get("bundles_found", {}).get("standalone", [])
+
+      if not standalone_bundles:
+          results["skipped"] = True
+          results["passed"] = True
+          results["reason"] = "No bundles in /bundles/ directory"
+          print(json.dumps(results))
+          sys.exit(0)
+
+      if not env_check.get("foundation_available"):
+          # Fallback: basic YAML parsing without includes resolution
+          results["warnings"].append({
+              "type": "limited_validation",
+              "message": "Foundation not available - cannot fully trace includes chain"
+          })
+          
+          for bundle_path in standalone_bundles:
+              results["bundles_checked"] += 1
+              path = Path(bundle_path)
+              bundle_name = path.stem if path.name not in ["bundle.md", "bundle.yaml"] else path.parent.name
+              
+              detail = {
+                  "path": bundle_path,
+                  "name": bundle_name,
+                  "has_orchestrator": False,
+                  "has_context": False,
+                  "has_includes": False,
+                  "completeness": "unknown"
+              }
+              
+              try:
+                  content = path.read_text()
+                  
+                  # Check for session config
+                  detail["has_orchestrator"] = bool(re.search(r'orchestrator:', content))
+                  detail["has_context"] = bool(re.search(r'context:', content))
+                  detail["has_includes"] = bool(re.search(r'^includes:', content, re.MULTILINE))
+                  
+                  if detail["has_orchestrator"] and detail["has_context"]:
+                      detail["completeness"] = "direct"
+                  elif detail["has_includes"]:
+                      detail["completeness"] = "via_includes_unverified"
+                      results["warnings"].append({
+                          "bundle": bundle_name,
+                          "type": "includes_not_traced",
+                          "message": "Bundle has includes but cannot verify completeness without foundation"
+                      })
+                  else:
+                      detail["completeness"] = "incomplete"
+                      results["errors"].append({
+                          "bundle": bundle_name,
+                          "type": "missing_session_config",
+                          "message": "Standalone bundle missing orchestrator/context and has no includes",
+                          "severity": "ERROR",
+                          "fix": "Add session.orchestrator and session.context, or include a bundle that provides them"
+                      })
+              except Exception as e:
+                  detail["error"] = str(e)
+                  results["warnings"].append({
+                      "bundle": bundle_name,
+                      "type": "read_error",
+                      "message": f"Could not read bundle: {e}"
+                  })
+              
+              results["bundle_details"].append(detail)
+          
+          results["passed"] = len(results["errors"]) == 0
+          print(json.dumps(results))
+          sys.exit(0)
+
+      # Full validation with foundation available
+      from amplifier_foundation import BundleRegistry
+
+      async def check_completeness():
+          for bundle_path in standalone_bundles:
+              results["bundles_checked"] += 1
+              path = Path(bundle_path).resolve()
+              bundle_name = path.stem if path.name not in ["bundle.md", "bundle.yaml"] else path.parent.name
+              
+              detail = {
+                  "path": bundle_path,
+                  "name": bundle_name,
+                  "has_orchestrator": False,
+                  "has_context": False,
+                  "via_includes": False,
+                  "completeness": "unknown"
+              }
+
+              try:
+                  registry = BundleRegistry()
+                  uri = f"file://{path}"
+                  
+                  # Load with includes followed
+                  bundle = await registry._load_single(
+                      uri,
+                      auto_register=True,
+                      auto_include=True  # Follow includes
+                  )
+                  
+                  # Check composed session config
+                  session = getattr(bundle, 'session', None)
+                  if session:
+                      detail["has_orchestrator"] = bool(getattr(session, 'orchestrator', None))
+                      detail["has_context"] = bool(getattr(session, 'context', None))
+                  
+                  # Check if bundle itself has orchestrator or got it via includes
+                  content = path.read_text()
+                  direct_orchestrator = bool(re.search(r'orchestrator:', content))
+                  detail["via_includes"] = detail["has_orchestrator"] and not direct_orchestrator
+                  
+                  if detail["has_orchestrator"] and detail["has_context"]:
+                      detail["completeness"] = "complete"
+                  elif detail["has_orchestrator"]:
+                      detail["completeness"] = "partial_missing_context"
+                      results["errors"].append({
+                          "bundle": bundle_name,
+                          "type": "missing_context_module",
+                          "message": "Standalone bundle has orchestrator but missing context module",
+                          "severity": "ERROR",
+                          "fix": "Add session.context or include a bundle that provides it"
+                      })
+                  elif detail["has_context"]:
+                      detail["completeness"] = "partial_missing_orchestrator"
+                      results["errors"].append({
+                          "bundle": bundle_name,
+                          "type": "missing_orchestrator",
+                          "message": "Standalone bundle has context but missing orchestrator",
+                          "severity": "ERROR",
+                          "fix": "Add session.orchestrator or include a bundle that provides it"
+                      })
+                  else:
+                      detail["completeness"] = "incomplete"
+                      results["errors"].append({
+                          "bundle": bundle_name,
+                          "type": "missing_session_config",
+                          "message": "Standalone bundle missing both orchestrator and context",
+                          "severity": "ERROR",
+                          "fix": "Add session configuration or include foundation/another complete bundle"
+                      })
+                  
+                  # Note about provider (WARNING, not ERROR - intentional flexibility)
+                  providers = getattr(bundle, 'providers', [])
+                  if not providers:
+                      results["warnings"].append({
+                          "bundle": bundle_name,
+                          "type": "no_provider",
+                          "message": "Standalone bundle has no provider (may be intentional for flexibility)",
+                          "severity": "INFO"
+                      })
+                      detail["has_provider"] = False
+                  else:
+                      detail["has_provider"] = True
+
+              except Exception as e:
+                  detail["error"] = str(e)
+                  detail["completeness"] = "error"
+                  results["errors"].append({
+                      "bundle": bundle_name,
+                      "type": "load_error",
+                      "message": f"Could not load bundle: {e}",
+                      "severity": "ERROR"
+                  })
+              
+              results["bundle_details"].append(detail)
+
+          results["passed"] = len(results["errors"]) == 0
+          results["summary"] = {
+              "bundles_checked": results["bundles_checked"],
+              "complete": len([d for d in results["bundle_details"] if d.get("completeness") == "complete"]),
+              "incomplete": len([d for d in results["bundle_details"] if d.get("completeness") in ["incomplete", "partial_missing_context", "partial_missing_orchestrator"]]),
+              "errors": len(results["errors"]),
+              "warnings": len(results["warnings"])
+          }
+          print(json.dumps(results))
+
+      asyncio.run(check_completeness())
+      EOF
+    output: "standalone_completeness_results"
+    parse_json: true
+    timeout: 180
+    depends_on: ["validate-all-bundles"]
+
+  # ============================================================================
+  # PHASE 2.3: Experiments Validation (NEW in v3.0.0)
+  # Validates bundles in /experiments/:
+  # - Name should be exp-* prefixed (WARNING)
+  # - Description should include "EXPERIMENTAL" (WARNING)
+  # - Must be complete (same as standalone) (ERROR)
+  # ============================================================================
+
+  - id: "experiments-validation"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import asyncio
+      import json
+      import re
+      import sys
+      from pathlib import Path
+
+      env_check = json.loads('''{{env_check}}''')
+      discovery = json.loads('''{{discovery_results}}''')
+
+      results = {
+          "phase": "experiments_validation",
+          "experiments_checked": 0,
+          "errors": [],
+          "warnings": [],
+          "experiment_details": []
+      }
+
+      experiment_bundles = discovery.get("bundles_found", {}).get("experiments", [])
+
+      if not experiment_bundles:
+          results["skipped"] = True
+          results["passed"] = True
+          results["reason"] = "No bundles in /experiments/ directory"
+          print(json.dumps(results))
+          sys.exit(0)
+
+      for bundle_path in experiment_bundles:
+          results["experiments_checked"] += 1
+          path = Path(bundle_path)
+          bundle_name = path.stem if path.name not in ["bundle.md", "bundle.yaml"] else path.parent.name
+          
+          detail = {
+              "path": bundle_path,
+              "name": bundle_name,
+              "issues": []
+          }
+          
+          try:
+              content = path.read_text()
+              
+              # Rule 1: Name should be exp-* prefixed (WARNING)
+              if not bundle_name.startswith("exp-"):
+                  results["warnings"].append({
+                      "experiment": bundle_name,
+                      "type": "naming_convention",
+                      "message": f"Experiment bundle '{bundle_name}' should be prefixed with 'exp-'",
+                      "severity": "WARNING",
+                      "fix": f"Rename to 'exp-{bundle_name}'"
+                  })
+                  detail["issues"].append("naming_convention")
+              
+              # Rule 2: Description should mention EXPERIMENTAL (WARNING)
+              # Check for description field
+              desc_match = re.search(r'description:\s*[|>]?\s*\n?\s*(.+?)(?=\n[a-z]|\n---|\Z)', content, re.IGNORECASE | re.DOTALL)
+              if desc_match:
+                  description = desc_match.group(1)
+                  if "EXPERIMENTAL" not in description.upper():
+                      results["warnings"].append({
+                          "experiment": bundle_name,
+                          "type": "missing_experimental_warning",
+                          "message": "Experiment bundle description should include 'EXPERIMENTAL' warning",
+                          "severity": "WARNING",
+                          "fix": "Add 'EXPERIMENTAL' to the description to warn users"
+                      })
+                      detail["issues"].append("missing_experimental_warning")
+                  detail["has_experimental_warning"] = "EXPERIMENTAL" in description.upper()
+              else:
+                  results["warnings"].append({
+                      "experiment": bundle_name,
+                      "type": "missing_description",
+                      "message": "Experiment bundle has no description",
+                      "severity": "WARNING"
+                  })
+                  detail["issues"].append("missing_description")
+              
+              # Rule 3: Must be complete (has orchestrator + context or includes)
+              has_orchestrator = bool(re.search(r'orchestrator:', content))
+              has_context = bool(re.search(r'^\s+context:', content, re.MULTILINE))
+              has_includes = bool(re.search(r'^includes:', content, re.MULTILINE))
+              
+              detail["has_orchestrator"] = has_orchestrator
+              detail["has_context"] = has_context
+              detail["has_includes"] = has_includes
+              
+              if has_orchestrator and has_context:
+                  detail["completeness"] = "direct"
+              elif has_includes:
+                  detail["completeness"] = "via_includes"
+              else:
+                  detail["completeness"] = "incomplete"
+                  results["errors"].append({
+                      "experiment": bundle_name,
+                      "type": "incomplete_experiment",
+                      "message": "Experiment bundle is not complete (missing session config and no includes)",
+                      "severity": "ERROR",
+                      "fix": "Add session.orchestrator and session.context, or include a complete bundle"
+                  })
+                  detail["issues"].append("incomplete_experiment")
+              
+          except Exception as e:
+              detail["error"] = str(e)
+              results["warnings"].append({
+                  "experiment": bundle_name,
+                  "type": "read_error",
+                  "message": f"Could not read experiment bundle: {e}"
+              })
+          
+          results["experiment_details"].append(detail)
+
+      results["passed"] = len(results["errors"]) == 0
+      results["summary"] = {
+          "experiments_checked": results["experiments_checked"],
+          "complete": len([d for d in results["experiment_details"] if d.get("completeness") in ["direct", "via_includes"]]),
+          "incomplete": len([d for d in results["experiment_details"] if d.get("completeness") == "incomplete"]),
+          "naming_issues": len([d for d in results["experiment_details"] if "naming_convention" in d.get("issues", [])]),
+          "errors": len(results["errors"]),
+          "warnings": len(results["warnings"])
+      }
+
+      print(json.dumps(results))
+      EOF
+    output: "experiments_validation_results"
+    parse_json: true
+    timeout: 120
+    depends_on: ["validate-all-bundles"]
+
+  # ============================================================================
+  # PHASE 2.4: Context Sink Compliance (NEW in v3.0.0)
+  # Validates root bundles follow context sink pattern:
+  # - >5 context.include files in root → WARNING
+  # - Any file >2000 tokens in root context → INFO (candidate for agent)
+  # - Root owns >50% of total context tokens → INFO
+  # ============================================================================
+
+  - id: "context-sink-compliance"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      import re
+      import sys
+      from pathlib import Path
+
+      def estimate_tokens(content: str) -> int:
+          """Estimate token count as len(content) // 4."""
+          return len(content) // 4
+
+      discovery = json.loads('''{{discovery_results}}''')
+
+      results = {
+          "phase": "context_sink_compliance",
+          "root_bundles_checked": 0,
+          "errors": [],
+          "warnings": [],
+          "info": [],
+          "root_details": []
+      }
+
+      root_bundles = discovery.get("bundles_found", {}).get("root", [])
+
+      if not root_bundles:
+          results["skipped"] = True
+          results["passed"] = True
+          results["reason"] = "No root bundle found"
+          print(json.dumps(results))
+          sys.exit(0)
+
+      repo_path = Path(discovery.get("repo_path", ".")).resolve()
+
+      for bundle_path in root_bundles:
+          results["root_bundles_checked"] += 1
+          path = Path(bundle_path)
+          
+          detail = {
+              "path": bundle_path,
+              "context_files": [],
+              "total_context_tokens": 0,
+              "issues": []
+          }
+
+          try:
+              content = path.read_text()
+              
+              # Parse context.include section
+              # Handle both YAML and MD formats
+              if path.suffix == '.md':
+                  # Extract YAML frontmatter
+                  match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+                  if match:
+                      yaml_content = match.group(1)
+                  else:
+                      yaml_content = ""
+              else:
+                  yaml_content = content
+              
+              # Find context.include entries
+              context_match = re.search(r'context:\s*\n((?:\s+.*\n)*)', yaml_content)
+              if context_match:
+                  context_section = context_match.group(1)
+                  include_match = re.search(r'include:\s*\n((?:\s+-.*\n)*)', context_section)
+                  if include_match:
+                      include_lines = include_match.group(1)
+                      includes = re.findall(r'-\s*(.+)', include_lines)
+                      
+                      for include_ref in includes:
+                          include_ref = include_ref.strip().strip('"').strip("'")
+                          file_info = {
+                              "reference": include_ref,
+                              "resolved": False,
+                              "tokens": 0
+                          }
+                          
+                          # Try to resolve and read the file
+                          if include_ref.startswith("@"):
+                              # Bundle reference - estimate
+                              file_info["tokens"] = 500
+                              file_info["note"] = "Bundle reference - estimated"
+                          else:
+                              # Try relative paths
+                              include_path = path.parent / include_ref
+                              if not include_path.exists():
+                                  include_path = repo_path / include_ref
+                              
+                              if include_path.exists():
+                                  try:
+                                      file_content = include_path.read_text()
+                                      file_info["tokens"] = estimate_tokens(file_content)
+                                      file_info["resolved"] = True
+                                      file_info["resolved_path"] = str(include_path)
+                                  except Exception as e:
+                                      file_info["error"] = str(e)
+                                      file_info["tokens"] = 500
+                              else:
+                                  file_info["note"] = "Could not resolve path"
+                                  file_info["tokens"] = 500
+                          
+                          detail["context_files"].append(file_info)
+                          detail["total_context_tokens"] += file_info["tokens"]
+                          
+                          # Check for large individual files (>2000 tokens)
+                          if file_info["tokens"] > 2000:
+                              results["info"].append({
+                                  "root_bundle": path.name,
+                                  "type": "large_context_file",
+                                  "file": include_ref,
+                                  "tokens": file_info["tokens"],
+                                  "message": f"Context file '{include_ref}' has ~{file_info['tokens']} tokens - consider moving to agent",
+                                  "severity": "INFO"
+                              })
+                              detail["issues"].append(f"large_file:{include_ref}")
+                      
+                      # Check total include count (>5 → WARNING)
+                      if len(includes) > 5:
+                          results["warnings"].append({
+                              "root_bundle": path.name,
+                              "type": "too_many_context_includes",
+                              "count": len(includes),
+                              "message": f"Root bundle has {len(includes)} context.include files (>5 threshold)",
+                              "severity": "WARNING",
+                              "fix": "Move specialized context to agents (context sink pattern)"
+                          })
+                          detail["issues"].append("too_many_context_includes")
+
+              # Calculate total repo context tokens for ratio check
+              total_repo_tokens = discovery.get("summary", {}).get("total_tokens", 0)
+              if total_repo_tokens > 0 and detail["total_context_tokens"] > 0:
+                  root_ratio = detail["total_context_tokens"] / total_repo_tokens
+                  detail["root_context_ratio"] = round(root_ratio, 2)
+                  
+                  if root_ratio > 0.5:
+                      results["info"].append({
+                          "root_bundle": path.name,
+                          "type": "high_root_context_ratio",
+                          "ratio": round(root_ratio * 100),
+                          "message": f"Root bundle owns {round(root_ratio * 100)}% of total context tokens",
+                          "severity": "INFO",
+                          "suggestion": "Consider distributing context to behaviors and agents"
+                      })
+                      detail["issues"].append("high_root_context_ratio")
+
+          except Exception as e:
+              detail["error"] = str(e)
+              results["warnings"].append({
+                  "root_bundle": path.name,
+                  "type": "read_error",
+                  "message": f"Could not analyze root bundle: {e}"
+              })
+          
+          results["root_details"].append(detail)
+
+      results["passed"] = len(results["errors"]) == 0
+      results["summary"] = {
+          "root_bundles_checked": results["root_bundles_checked"],
+          "warnings": len(results["warnings"]),
+          "info": len(results["info"]),
+          "total_root_context_tokens": sum(d.get("total_context_tokens", 0) for d in results["root_details"])
+      }
+
+      print(json.dumps(results))
+      EOF
+    output: "context_sink_results"
+    parse_json: true
+    timeout: 120
+    depends_on: ["validate-all-bundles"]
+
+  # ============================================================================
+  # PHASE 2.5: Tool Placement Analysis (NEW in v3.0.0)
+  # Analyzes tool placement philosophy:
+  # - Universal tools (filesystem, bash, web, search, todo) → OK in root
+  # - Capability tools → should be in behaviors
+  # - Specialized tools used by only one agent → SUGGESTION to move behind agent
+  # ============================================================================
+
+  - id: "tool-placement-analysis"
+    type: "bash"
+    command: |
+      python3 << 'EOF'
+      import json
+      import re
+      import sys
+      from pathlib import Path
+
+      discovery = json.loads('''{{discovery_results}}''')
+      individual = json.loads('''{{individual_validation}}''')
+
+      results = {
+          "phase": "tool_placement_analysis",
+          "tools_analyzed": 0,
+          "errors": [],
+          "warnings": [],
+          "suggestions": [],
+          "tool_inventory": []
+      }
+
+      # Universal tools that are always OK in root
+      UNIVERSAL_TOOLS = {
+          "tool-filesystem", "filesystem",
+          "tool-bash", "bash",
+          "tool-web", "web",
+          "tool-search", "search", "tool-grep", "grep", "tool-glob", "glob",
+          "tool-todo", "todo",
+          "tool-delegate", "delegate",
+          "tool-recipes", "recipes",
+          "tool-lsp", "lsp"
+      }
+
+      repo_path = Path(discovery.get("repo_path", ".")).resolve()
+
+      # Collect all tools from all bundles
+      tool_locations = {}  # tool_name -> [{"bundle": ..., "category": ...}, ...]
+      
+      all_bundles = []
+      for category, paths in discovery.get("bundles_found", {}).items():
+          for path in paths:
+              all_bundles.append((path, category))
+
+      for bundle_path, category in all_bundles:
+          path = Path(bundle_path)
+          try:
+              content = path.read_text()
+              
+              # Find tools section
+              tools_match = re.search(r'^tools:\s*\n((?:\s+-.*\n|\s+\w.*\n)*)', content, re.MULTILINE)
+              if tools_match:
+                  tools_section = tools_match.group(1)
+                  
+                  # Extract tool module names
+                  tool_modules = re.findall(r'module:\s*([^\s\n]+)', tools_section)
+                  
+                  for tool_name in tool_modules:
+                      results["tools_analyzed"] += 1
+                      
+                      if tool_name not in tool_locations:
+                          tool_locations[tool_name] = []
+                      
+                      tool_locations[tool_name].append({
+                          "bundle": str(path),
+                          "bundle_name": path.stem if path.name not in ["bundle.md", "bundle.yaml"] else path.parent.name,
+                          "category": category
+                      })
+                      
+          except Exception as e:
+              results["warnings"].append({
+                  "bundle": str(path),
+                  "type": "parse_error",
+                  "message": f"Could not parse bundle for tools: {e}"
+              })
+
+      # Analyze tool placement
+      for tool_name, locations in tool_locations.items():
+          tool_info = {
+              "name": tool_name,
+              "is_universal": any(u in tool_name.lower() for u in UNIVERSAL_TOOLS),
+              "locations": locations,
+              "location_count": len(locations),
+              "in_root": any(loc["category"] == "root" for loc in locations),
+              "in_behaviors": any(loc["category"] == "behaviors" for loc in locations),
+              "issues": []
+          }
+          
+          # Check for non-universal tools in root
+          if tool_info["in_root"] and not tool_info["is_universal"]:
+              # This is OK but worth noting if it's only used by specific behaviors/agents
+              behavior_users = [loc for loc in locations if loc["category"] == "behaviors"]
+              if len(behavior_users) == 1:
+                  results["suggestions"].append({
+                      "tool": tool_name,
+                      "type": "specialized_tool_in_root",
+                      "message": f"Tool '{tool_name}' is in root but only used by behavior '{behavior_users[0]['bundle_name']}'",
+                      "severity": "INFO",
+                      "suggestion": "Consider moving to the specific behavior that uses it"
+                  })
+                  tool_info["issues"].append("specialized_in_root")
+          
+          # Check for duplicate tool declarations
+          if len(locations) > 1:
+              categories = set(loc["category"] for loc in locations)
+              if "root" in categories and len(categories) > 1:
+                  # Tool in root AND in behaviors - redundant
+                  results["suggestions"].append({
+                      "tool": tool_name,
+                      "type": "redundant_tool_declaration",
+                      "message": f"Tool '{tool_name}' declared in root and also in {len(locations)-1} other location(s)",
+                      "severity": "INFO",
+                      "suggestion": "If in root, behaviors inherit it - remove from behaviors unless overriding config"
+                  })
+                  tool_info["issues"].append("redundant_declaration")
+          
+          results["tool_inventory"].append(tool_info)
+
+      # Summary statistics
+      universal_count = len([t for t in results["tool_inventory"] if t["is_universal"]])
+      specialized_count = len(results["tool_inventory"]) - universal_count
+
+      results["passed"] = len(results["errors"]) == 0
+      results["summary"] = {
+          "tools_analyzed": results["tools_analyzed"],
+          "unique_tools": len(results["tool_inventory"]),
+          "universal_tools": universal_count,
+          "specialized_tools": specialized_count,
+          "suggestions": len(results["suggestions"]),
+          "warnings": len(results["warnings"])
+      }
+
+      print(json.dumps(results))
+      EOF
+    output: "tool_placement_results"
+    parse_json: true
+    timeout: 120
+    depends_on: ["validate-all-bundles"]
+
+  # ============================================================================
+  # PHASE 2.6: Quality Classification (Deterministic)
+  # Enhanced in v3.0.0 to incorporate all new validation phases
   # ============================================================================
 
   - id: "quality-classification"
@@ -626,21 +1615,50 @@ steps:
       python3 << 'EOF'
       import json
       import sys
-      from pathlib import Path
 
-      # Parse results as JSON
+      # Parse all results
       individual = json.loads('''{{individual_validation}}''')
       discovery = json.loads('''{{discovery_results}}''')
       packaging = json.loads('''{{packaging_check}}''')
       
-      # Handle build_check which may be from conditional step
       build_check_raw = '''{{build_check}}'''
       try:
           build = json.loads(build_check_raw)
       except (json.JSONDecodeError, ValueError):
           build = {"passed": True, "skipped": True, "reason": "build check output not available"}
 
-      # Handle case where validation was skipped (e.g., foundation not available)
+      # NEW in v3.0.0: Parse new validation phase results
+      behavior_hygiene_raw = '''{{behavior_hygiene_results}}'''
+      try:
+          behavior_hygiene = json.loads(behavior_hygiene_raw)
+      except (json.JSONDecodeError, ValueError):
+          behavior_hygiene = {"passed": True, "skipped": True}
+
+      standalone_raw = '''{{standalone_completeness_results}}'''
+      try:
+          standalone = json.loads(standalone_raw)
+      except (json.JSONDecodeError, ValueError):
+          standalone = {"passed": True, "skipped": True}
+
+      experiments_raw = '''{{experiments_validation_results}}'''
+      try:
+          experiments = json.loads(experiments_raw)
+      except (json.JSONDecodeError, ValueError):
+          experiments = {"passed": True, "skipped": True}
+
+      context_sink_raw = '''{{context_sink_results}}'''
+      try:
+          context_sink = json.loads(context_sink_raw)
+      except (json.JSONDecodeError, ValueError):
+          context_sink = {"passed": True, "skipped": True}
+
+      tool_placement_raw = '''{{tool_placement_results}}'''
+      try:
+          tool_placement = json.loads(tool_placement_raw)
+      except (json.JSONDecodeError, ValueError):
+          tool_placement = {"passed": True, "skipped": True}
+
+      # Handle case where individual validation was skipped
       if individual.get("skipped", False):
           result = {
               "phase": "quality_classification",
@@ -661,18 +1679,12 @@ steps:
                   "severity": "critical"
               }],
               "packaging_issues": [],
+              "hygiene_issues": [],
+              "completeness_issues": [],
               "message": f"⚠️ Bundle validation could not run: {individual.get('reason', 'unknown reason')}"
           }
           print(json.dumps(result))
           sys.exit(0)
-
-      # EXPLICIT PASS THRESHOLDS
-      # A repository PASSES if ALL of these criteria are met:
-      # 1. All bundles load without errors (BundleRegistry succeeds)
-      # 2. Has proper structure (root bundle OR behaviors/bundles dirs)
-      # 3. No orphan agents (if agents/ exists, they're referenced)
-      # 4. Consistent namespace (not strictly enforced, but checked)
-      # 5. Python packaging builds successfully (if pyproject.toml present)
 
       def classify_bundle(bundle: dict) -> dict:
           """Classify a single bundle's quality level."""
@@ -715,7 +1727,12 @@ steps:
               "quality_level": "good",
               "requires_llm_analysis": False,
               "structural_issues": [],
-              "packaging_issues": []
+              "packaging_issues": [],
+              "hygiene_issues": [],
+              "completeness_issues": [],
+              "experiment_issues": [],
+              "context_sink_issues": [],
+              "tool_placement_issues": []
           }
           
           # Classify each bundle
@@ -732,7 +1749,6 @@ steps:
           has_standalone = repo_structure.get("has_standalone", False)
           has_agents = repo_structure.get("has_agents", False)
           
-          # A valid bundle repo needs SOME entry point
           if not has_root and not has_behaviors and not has_standalone:
               results["structural_issues"].append({
                   "type": "no_entry_point",
@@ -740,7 +1756,6 @@ steps:
                   "severity": "needs_work"
               })
           
-          # Check for orphan agents (agents/ exists but no behaviors reference them)
           if has_agents and not has_behaviors and not has_root:
               results["structural_issues"].append({
                   "type": "orphan_agents",
@@ -748,7 +1763,7 @@ steps:
                   "severity": "needs_work"
               })
           
-          # Check packaging errors (v2.1.0)
+          # Check packaging errors
           if not packaging.get("passed", True):
               for error in packaging.get("errors", []):
                   results["packaging_issues"].append({
@@ -757,50 +1772,144 @@ steps:
                       "severity": "critical",
                       "fix": error.get("fix", "Check pyproject.toml configuration")
                   })
-              results["summary"]["critical"] += 1
           
-          # Check build errors (v2.1.0)
           if not build.get("passed", True):
               for error in build.get("errors", []):
                   results["packaging_issues"].append({
                       "type": error.get("type", "build_error"),
                       "message": error.get("message", "Unknown build error"),
                       "severity": "critical",
-                      "details": error.get("details", "")[:500]  # Truncate long details
+                      "details": error.get("details", "")[:500]
                   })
-              results["summary"]["critical"] += 1
+
+          # NEW in v3.0.0: Check hygiene errors
+          if not behavior_hygiene.get("skipped", False) and not behavior_hygiene.get("passed", True):
+              for error in behavior_hygiene.get("errors", []):
+                  results["hygiene_issues"].append({
+                      "type": error.get("type"),
+                      "behavior": error.get("behavior"),
+                      "message": error.get("message"),
+                      "severity": error.get("severity", "ERROR"),
+                      "fix": error.get("fix", "")
+                  })
           
+          # Add hygiene warnings
+          for warning in behavior_hygiene.get("warnings", []):
+              results["hygiene_issues"].append({
+                  "type": warning.get("type"),
+                  "behavior": warning.get("behavior"),
+                  "message": warning.get("message"),
+                  "severity": "WARNING"
+              })
+
+          # Check standalone completeness errors
+          if not standalone.get("skipped", False) and not standalone.get("passed", True):
+              for error in standalone.get("errors", []):
+                  results["completeness_issues"].append({
+                      "type": error.get("type"),
+                      "bundle": error.get("bundle"),
+                      "message": error.get("message"),
+                      "severity": error.get("severity", "ERROR")
+                  })
+
+          # Check experiments errors
+          if not experiments.get("skipped", False) and not experiments.get("passed", True):
+              for error in experiments.get("errors", []):
+                  results["experiment_issues"].append({
+                      "type": error.get("type"),
+                      "experiment": error.get("experiment"),
+                      "message": error.get("message"),
+                      "severity": error.get("severity", "ERROR")
+                  })
+          
+          # Add experiment warnings
+          for warning in experiments.get("warnings", []):
+              results["experiment_issues"].append({
+                  "type": warning.get("type"),
+                  "experiment": warning.get("experiment"),
+                  "message": warning.get("message"),
+                  "severity": "WARNING"
+              })
+
+          # Context sink issues (warnings/info only)
+          for warning in context_sink.get("warnings", []):
+              results["context_sink_issues"].append({
+                  "type": warning.get("type"),
+                  "message": warning.get("message"),
+                  "severity": "WARNING"
+              })
+          for info in context_sink.get("info", []):
+              results["context_sink_issues"].append({
+                  "type": info.get("type"),
+                  "message": info.get("message"),
+                  "severity": "INFO"
+              })
+
+          # Tool placement suggestions
+          for suggestion in tool_placement.get("suggestions", []):
+              results["tool_placement_issues"].append({
+                  "type": suggestion.get("type"),
+                  "tool": suggestion.get("tool"),
+                  "message": suggestion.get("message"),
+                  "severity": "INFO"
+              })
+
           # Determine overall quality level
           # Priority: critical > needs_work > polish > good
-          if results["summary"]["critical"] > 0 or len(results["packaging_issues"]) > 0:
+          
+          critical_count = results["summary"]["critical"]
+          critical_count += len([i for i in results["packaging_issues"] if i.get("severity") == "critical"])
+          critical_count += len([i for i in results["hygiene_issues"] if i.get("severity") == "ERROR"])
+          critical_count += len([i for i in results["completeness_issues"] if i.get("severity") == "ERROR"])
+          critical_count += len([i for i in results["experiment_issues"] if i.get("severity") == "ERROR"])
+          
+          needs_work_count = results["summary"]["needs_work"]
+          needs_work_count += len([i for i in results["structural_issues"] if i.get("severity") == "needs_work"])
+          
+          warning_count = results["summary"]["polish"]
+          warning_count += len([i for i in results["hygiene_issues"] if i.get("severity") == "WARNING"])
+          warning_count += len([i for i in results["context_sink_issues"] if i.get("severity") == "WARNING"])
+          warning_count += len([i for i in results["experiment_issues"] if i.get("severity") == "WARNING"])
+          
+          if critical_count > 0:
               results["quality_level"] = "critical"
               results["requires_llm_analysis"] = True
-          elif results["summary"]["needs_work"] > 0 or len([i for i in results["structural_issues"] if i["severity"] == "needs_work"]) > 0:
+          elif needs_work_count > 0:
               results["quality_level"] = "needs_work"
               results["requires_llm_analysis"] = True
-          elif results["summary"]["polish"] > 0 or len(results["structural_issues"]) > 0:
+          elif warning_count > 0:
               results["quality_level"] = "polish"
-              # Polish-level issues may benefit from LLM review
               results["requires_llm_analysis"] = True
           else:
               results["quality_level"] = "good"
-              # All bundles pass! No LLM analysis needed.
               results["requires_llm_analysis"] = False
           
-          # Provide summary message
+          # Summary message
           total = results["summary"]["total"]
           good = results["summary"]["good"]
-          pkg_issues = len(results["packaging_issues"])
           
           if results["quality_level"] == "good":
               results["message"] = f"✅ All {total} bundles meet quality thresholds. No further analysis needed."
           else:
-              not_good = total - good
-              struct_issues = len(results["structural_issues"])
-              if pkg_issues > 0:
-                  results["message"] = f"🚨 {pkg_issues} packaging issues, {not_good}/{total} bundles, and {struct_issues} structural issues need attention."
-              else:
-                  results["message"] = f"⚠️ {not_good}/{total} bundles and {struct_issues} structural issues need attention."
+              issues = []
+              if critical_count > 0:
+                  issues.append(f"{critical_count} critical")
+              if needs_work_count > 0:
+                  issues.append(f"{needs_work_count} need work")
+              if warning_count > 0:
+                  issues.append(f"{warning_count} warnings")
+              
+              results["message"] = f"⚠️ Issues found: {', '.join(issues)}. {good}/{total} bundles are good."
+          
+          # v3.0.0 hygiene summary
+          results["hygiene_summary"] = {
+              "behavior_hygiene_passed": behavior_hygiene.get("passed", True),
+              "standalone_completeness_passed": standalone.get("passed", True),
+              "experiments_passed": experiments.get("passed", True),
+              "total_hygiene_errors": len(results["hygiene_issues"]) + len(results["completeness_issues"]) + len(results["experiment_issues"]),
+              "context_sink_warnings": len([i for i in results["context_sink_issues"] if i.get("severity") == "WARNING"]),
+              "tool_placement_suggestions": len(results["tool_placement_issues"])
+          }
           
           print(json.dumps(results))
 
@@ -809,12 +1918,10 @@ steps:
     output: "quality_classification"
     parse_json: true
     timeout: 60
-    depends_on: ["validate-all-bundles"]
+    depends_on: ["validate-all-bundles", "behavior-hygiene-validation", "standalone-completeness-validation", "experiments-validation", "context-sink-compliance", "tool-placement-analysis"]
 
   # ============================================================================
   # PHASE 2.75: Initialize Optional Outputs
-  # Set default values for variables that may be skipped by conditional phases
-  # This prevents undefined variable errors in Phase 5
   # ============================================================================
 
   - id: "initialize-optional-outputs"
@@ -823,8 +1930,6 @@ steps:
       python3 << 'EOF'
       import json
       
-      # Initialize default values for conditional phase outputs
-      # These will be overwritten if the corresponding phase runs
       defaults = {
           "approval_summary": "_Quick approval not performed - detailed LLM analysis was run instead._",
           "composition_analysis": "_Composition analysis not performed - all bundles met quality thresholds via deterministic checks._",
@@ -838,7 +1943,6 @@ steps:
     timeout: 30
     depends_on: ["quality-classification"]
 
-  # Set individual default values (will be overwritten by conditional steps if they run)
   - id: "set-default-approval-summary"
     type: "bash"
     command: |
@@ -865,8 +1969,6 @@ steps:
 
   # ============================================================================
   # PHASE 3: Quick Approval (When All Bundles Pass)
-  # Fast-track path for repos that meet all quality thresholds
-  # Model: haiku - simple summary, no complex reasoning needed
   # ============================================================================
 
   - id: "quick-approval"
@@ -901,17 +2003,17 @@ steps:
       {{build_check}}
       ```
 
-      **Individual Validation Summary:**
-      - Total bundles: {{individual_validation.summary.total}}
-      - Passed: {{individual_validation.summary.passed}}
-      - Failed: {{individual_validation.summary.failed}}
-      - Warnings: {{individual_validation.summary.warnings}}
+      **Hygiene Summary (v3.0.0):**
+      - Behavior hygiene: {{quality_classification.hygiene_summary.behavior_hygiene_passed}}
+      - Standalone completeness: {{quality_classification.hygiene_summary.standalone_completeness_passed}}
+      - Experiments: {{quality_classification.hygiene_summary.experiments_passed}}
 
       Provide a concise approval noting:
       1. ✅ Confirm all bundles load and meet quality standards
       2. ✅ Confirm Python packaging is valid (if applicable)
-      3. What's done well (patterns worth preserving)
-      4. Any optional polish suggestions (NOT requirements - bundles are already good)
+      3. ✅ Confirm bundle hygiene (behaviors thin, standalones complete, context sink pattern)
+      4. What's done well (patterns worth preserving)
+      5. Any optional polish suggestions (NOT requirements - bundles are already good)
 
       Keep the response brief - this is the fast-track approval path.
       
@@ -930,8 +2032,6 @@ steps:
 
   # ============================================================================
   # PHASE 4: Repository Composition Analysis (Conditional)
-  # Analyze how the pieces fit together
-  # Only runs when quality_classification.requires_llm_analysis == true
   # ============================================================================
 
   - id: "composition-analysis"
@@ -940,7 +2040,7 @@ steps:
     condition: "{{quality_classification.requires_llm_analysis}} == true"
     depends_on: ["set-default-composition-analysis"]
     prompt: |
-      Analyze the composition of this bundle repository.
+      Analyze the composition of this bundle repository with focus on hygiene violations.
 
       **Repository Path:** {{repo_path}}
 
@@ -954,96 +2054,79 @@ steps:
       {{discovery_results}}
       ```
 
-      **Packaging Check:**
+      **Behavior Hygiene Results:**
       ```json
-      {{packaging_check}}
+      {{behavior_hygiene_results}}
       ```
 
-      **Build Check:**
+      **Standalone Completeness Results:**
       ```json
-      {{build_check}}
+      {{standalone_completeness_results}}
       ```
 
-      **Individual Bundle Validation:**
+      **Experiments Validation Results:**
       ```json
-      {{individual_validation}}
+      {{experiments_validation_results}}
       ```
 
-      **IMPORTANT: Focus ONLY on bundles/issues with quality != "good"**
-      
-      Bundles classified as "good" have ALREADY PASSED. Do NOT suggest improvements for them.
+      **Context Sink Compliance:**
+      ```json
+      {{context_sink_results}}
+      ```
 
-      **What is NOT an Issue (do not flag these):**
-      - Using /bundles/ vs /behaviors/ is a LOCATION choice, not an error
-      - Missing optional files (CONTRIBUTING.md, etc.)
-      - Alternative valid patterns (inline agents vs file refs)
-      - Minor style differences in naming or structure
-      - "Could be slightly better" for repos that meet thresholds
-      - Different organizational approaches that still work
-      - Not having every possible directory (only what's needed)
+      **Tool Placement Analysis:**
+      ```json
+      {{tool_placement_results}}
+      ```
 
-      **Only flag genuine issues:**
-      - Bundles that fail to load (critical)
-      - Broken includes/references that prevent loading
-      - Orphan agents that are never used
-      - Structural issues that would confuse users
-      - **Python packaging errors (pyproject.toml force-includes referencing missing directories)**
-      - **Build failures (hatchling/setuptools configuration issues)**
+      **IMPORTANT: Focus on actual issues identified in the validation phases above.**
 
-      **Reference Documentation:**
-      Review these for conventions:
-      - @foundation:docs/CONCEPTS.md (structural terminology)
-      - @foundation:docs/BUNDLE_GUIDE.md (directory conventions, composition patterns)
+      **v3.0.0 Hygiene Rules to Enforce:**
 
-      **Composition Analysis Tasks:**
+      1. **Behavior Hygiene (ERROR if violated):**
+         - Behaviors must NOT include root bundles (context bloat anti-pattern)
+         - Behaviors must NOT have session.orchestrator (not standalone)
+         - Behaviors must NOT define providers
+         - context.include tokens must be <2000 (ERROR) / <1000 (WARNING)
+         - Behaviors should have ≤3 context.include files
+         - Behaviors should have ≤2 tools
 
-      1. **Root Bundle + Behavior DRY Pattern** (RECOMMENDED, not required):
-         If repo has a root bundle AND behaviors/, it's RECOMMENDED that the root include
-         its own behavior for DRY composition. This is a convention for maintainability,
-         not a hard requirement.
+      2. **Standalone Completeness (ERROR if violated):**
+         - Bundles in /bundles/ MUST have orchestrator + context (direct or via includes)
+         - Missing provider is WARNING only (intentional flexibility)
 
-      2. **Standalone Bundle Session Configuration**:
-         For each bundle in /bundles/, check if it's intended as a standalone entry point.
-         If so, it needs session.orchestrator and session.context (directly OR via includes).
-         If the bundle lacks session configuration, it may be intended for composition -
-         in which case it should be in /behaviors/ instead.
+      3. **Experiments Rules:**
+         - Should be exp-* prefixed (WARNING)
+         - Description should include EXPERIMENTAL (WARNING)
+         - Must be complete like standalone bundles (ERROR)
 
-      3. **Provider Bundle Isolation** (RECOMMENDED, not required):
-         Provider configurations are typically isolated in /providers/ for reusability.
-         Root bundles typically don't hardcode providers, but this is a convention for
-         flexibility, not a hard requirement.
+      4. **Context Sink Pattern (INFO/WARNING):**
+         - Root with >5 context.include files → WARNING
+         - Individual files >2000 tokens → INFO (candidate for agent)
+         - Root owns >50% of context → INFO
 
-      4. **Agent Accessibility**:
-         Are agents in /agents/ included by behaviors or root bundle?
-         Orphan agents (not included anywhere) may indicate incomplete setup.
+      5. **Tool Placement (INFO):**
+         - Universal tools OK in root
+         - Specialized tools used by one behavior → suggest moving to behavior
+         - Redundant declarations → info
 
-      5. **Namespace Consistency**:
-         Do all bundles use the same namespace (from root bundle.name)?
-         Mixed namespaces can cause include resolution issues.
-
-      6. **Cross-Bundle References**:
-         Do includes between bundles resolve correctly?
-         Check for broken references or incorrect paths.
-
-      7. **Python Packaging Consistency** (v2.1.0):
-         If pyproject.toml exists, verify:
-         - All force-include paths exist on disk
-         - Directory renames are reflected in build config
-         - Package data references are valid
+      **What is NOT an Issue:**
+      - Using /bundles/ vs /behaviors/ is a LOCATION choice
+      - Alternative valid patterns that still work
+      - Personal preferences about organization
 
       **Output Format:**
-      For each analysis area:
-      - **Finding**: What you observed
-      - **Status**: GOOD | ISSUE | N/A
-      - **Recommendation**: If ISSUE, how to fix
+      For each validation domain with issues:
+      - **Domain**: behavior_hygiene | standalone_completeness | experiments | context_sink | tool_placement
+      - **Finding**: What was observed
+      - **Status**: ERROR | WARNING | INFO
+      - **Fix**: How to resolve
     output: "composition_analysis"
     timeout: 300
     depends_on: ["quality-classification"]
 
   # ============================================================================
   # PHASE 4.5: Convention Compliance (Conditional)
-  # Check repo-wide conventions
-  # Only runs when quality_classification.requires_llm_analysis == true
   # ============================================================================
 
   - id: "repo-conventions"
@@ -1052,7 +2135,7 @@ steps:
     condition: "{{quality_classification.requires_llm_analysis}} == true"
     depends_on: ["set-default-repo-conventions", "composition-analysis"]
     prompt: |
-      Review repository-wide convention compliance.
+      Review repository-wide convention compliance, incorporating v3.0.0 hygiene findings.
 
       **Repository Path:** {{repo_path}}
 
@@ -1066,86 +2149,44 @@ steps:
       {{discovery_results}}
       ```
 
-      **Packaging Check:**
-      ```json
-      {{packaging_check}}
-      ```
+      **Focus on genuine convention violations that impact functionality.**
 
-      **Build Check:**
-      ```json
-      {{build_check}}
-      ```
+      **Conventions to Check:**
 
-      **Individual Validation:**
-      ```json
-      {{individual_validation}}
-      ```
-
-      **IMPORTANT: Focus ONLY on genuine convention violations that impact functionality**
-      
-      **What is NOT an Issue (do not flag these):**
-      - Using .yaml vs .md for bundles (both are valid)
-      - Not having every possible directory
-      - Alternative valid naming styles (kebab-case, snake_case)
-      - Missing optional documentation (CONTRIBUTING, etc.)
-      - Different structural approaches that still work
-      - "Could be slightly better" suggestions for working repos
-      - Personal preferences about organization
-
-      **Only flag genuine issues:**
-      - Completely missing required files for functionality
-      - Naming that breaks resolution (spaces, special chars)
-      - File format mismatches (agent in .yaml instead of .md)
-      - Structural issues that prevent loading
-      - **pyproject.toml force-includes that reference non-existent directories**
-
-      **Conventions to Check (Repo-Wide):**
-
-      1. **Directory Structure**:
-         - /bundle.md or /bundle.yaml at root (recommended)
-         - /behaviors/ for reusable capability bundles
-         - /bundles/ for standalone variant bundles
+      1. **Directory Structure:**
+         - /bundle.md or /bundle.yaml at root
+         - /behaviors/ for capability bundles (should be thin!)
+         - /bundles/ for standalone variant bundles (must be complete!)
+         - /experiments/ for experimental bundles (prefixed exp-*)
          - /providers/ for provider configurations
          - /agents/ for agent definitions
          - /context/ for shared context files
-         - /docs/ for documentation
-         - /modules/ for local tool modules (if any)
 
-      2. **Naming Conventions**:
-         - Behavior files: descriptive-name.yaml
-         - Agent files: descriptive-name.md
-         - Consistent naming style across the repo
+      2. **Bundle Hygiene (v3.0.0):**
+         - Behaviors: thin, no root includes, no session config, limited context
+         - Standalones: complete session config (direct or via includes)
+         - Experiments: prefixed, warned, complete
 
-      3. **Documentation**:
-         - README.md at root
-         - Agent descriptions in meta.description
-         - Bundle descriptions in bundle.description
+      3. **Context Sink Pattern:**
+         - Heavy context should be in agents, not root/behaviors
+         - Root should have awareness-level context only
+         - Specialized knowledge → agents
 
-      4. **File Format Consistency**:
-         - Bundles: .yaml or .md (prefer .md for root, .yaml for behaviors)
-         - Agents: always .md (markdown with YAML frontmatter)
-
-      5. **Required Files**:
-         - LICENSE (for public repos)
-         - At least one of: bundle.md, bundles/, behaviors/
-
-      6. **Python Packaging** (if pyproject.toml exists):
-         - force-include paths must exist on disk
-         - package-data patterns should resolve
-         - Build should succeed without errors
-
-      **Read actual files as needed** to verify conventions.
+      4. **Tool Placement:**
+         - Universal tools (filesystem, bash, web, search) → root OK
+         - Capability tools → behaviors
+         - Specialized tools → behind agents
 
       **Output Format:**
       Convention checklist with PASS/FAIL/N/A and notes.
-      Only list FAIL items if they genuinely break functionality.
+      Only list FAIL items if they genuinely break functionality or violate hygiene rules.
     output: "repo_conventions"
     timeout: 300
     depends_on: ["composition-analysis"]
 
   # ============================================================================
   # PHASE 5: Final Report Synthesis
-  # Generates different reports based on quality_level
+  # Enhanced in v3.0.0 with hygiene sections
   # ============================================================================
 
   - id: "synthesize-report"
@@ -1186,6 +2227,31 @@ steps:
       {{individual_validation}}
       ```
 
+      **Behavior Hygiene (v3.0.0):**
+      ```json
+      {{behavior_hygiene_results}}
+      ```
+
+      **Standalone Completeness (v3.0.0):**
+      ```json
+      {{standalone_completeness_results}}
+      ```
+
+      **Experiments Validation (v3.0.0):**
+      ```json
+      {{experiments_validation_results}}
+      ```
+
+      **Context Sink Compliance (v3.0.0):**
+      ```json
+      {{context_sink_results}}
+      ```
+
+      **Tool Placement Analysis (v3.0.0):**
+      ```json
+      {{tool_placement_results}}
+      ```
+
       **Quick Approval Summary:**
       {{approval_summary}}
 
@@ -1197,59 +2263,84 @@ steps:
 
       **REPORT GENERATION RULES:**
 
-      1. If quality_level == "good": Generate a PASS report celebrating the clean bill of health
-      2. If quality_level == "polish": Generate a PASS WITH SUGGESTIONS report (optional improvements)
-      3. If quality_level == "needs_work": Generate a PASS WITH WARNINGS report (should fix)
-      4. If quality_level == "critical": Generate a FAIL report (must fix)
-
-      **Verdict Selection:**
-      - **✅ PASS**: All bundles load and meet quality thresholds (quality_level == "good")
-      - **✅ PASS WITH SUGGESTIONS**: Minor polish opportunities (quality_level == "polish")
-      - **⚠️ PASS WITH WARNINGS**: Some bundles/structure needs work (quality_level == "needs_work")
-      - **❌ FAIL**: Critical issues found (quality_level == "critical")
+      1. If quality_level == "good": Generate a PASS report celebrating clean bill of health
+      2. If quality_level == "polish": Generate a PASS WITH SUGGESTIONS report
+      3. If quality_level == "needs_work": Generate a PASS WITH WARNINGS report
+      4. If quality_level == "critical": Generate a FAIL report
 
       **Generate this report structure:**
 
-      # Bundle Repository Validation Report
+      # Bundle Repository Validation Report v3.0.0
 
       ## Executive Summary
-      - **Overall Verdict**: [Select from above based on quality_level]
+      - **Overall Verdict**: [✅ PASS | ✅ PASS WITH SUGGESTIONS | ⚠️ PASS WITH WARNINGS | ❌ FAIL]
       - **Repository**: path
-      - **Bundles Found**: X total (Y root, Z behaviors, ...)
+      - **Bundles Found**: X total (Y root, Z behaviors, W standalone, V experiments, ...)
       - **Quality Breakdown**: X good, Y polish, Z needs_work, W critical
-      - **Packaging**: PASS/FAIL (with note if pyproject.toml present)
+      - **Packaging**: PASS/FAIL
+      - **Hygiene**: PASS/FAIL (v3.0.0 checks)
       - **Issues**: X errors, Y warnings, Z suggestions
 
       ## Bundle Discovery
-      Summary of what was found in the repository.
+      Summary of what was found in the repository by category.
 
-      ## Python Packaging Status (if applicable)
-      - pyproject.toml: present/absent
-      - Force-includes checked: X
-      - Build check: passed/failed/skipped
-      - Any packaging issues found
+      ## Python Packaging Status
+      (if applicable)
 
       ## Quality Classification Summary
 
       | Bundle | Category | Quality | Issues |
       |--------|----------|---------|--------|
-      | name   | category | good/polish/needs_work/critical | count |
+      | name   | category | level   | count  |
+
+      ## v3.0.0 Hygiene Validation
+
+      ### Behavior Hygiene
+      | Behavior | Issues | Status |
+      |----------|--------|--------|
+      
+      Issues:
+      - [ERROR] Root bundle includes
+      - [ERROR] Session config in behavior
+      - [ERROR] Providers in behavior
+      - [ERROR] context.include >2000 tokens
+      - [WARNING] context.include >1000 tokens
+      - [WARNING] >3 context.include files
+      - [WARNING] >2 tools
+
+      ### Standalone Completeness
+      | Bundle | Orchestrator | Context | Provider | Status |
+      |--------|--------------|---------|----------|--------|
+
+      ### Experiments Validation
+      | Experiment | Naming | Warning | Complete | Status |
+      |------------|--------|---------|----------|--------|
+
+      ### Context Sink Compliance
+      - Root context files: X
+      - Root context tokens: Y
+      - Large files (>2000 tokens): [list]
+      - Root context ratio: Z%
+
+      ### Tool Placement
+      - Universal tools: X
+      - Specialized tools: Y
+      - Suggestions: [list]
 
       ## Detailed Findings
 
-      **For PASS verdict:** Highlight what's done well. Any suggestions are OPTIONAL.
+      **For PASS verdict:** Highlight what's done well.
 
       **For other verdicts:**
 
       ### Errors (Must Fix) - HIGH Priority
-      Issues that break bundle loading or basic functionality.
-      **Include any Python packaging errors here - they block installation!**
+      Hygiene violations, completeness failures, load errors
 
       ### Warnings (Should Fix) - MEDIUM Priority
-      Structural issues or convention violations that may cause problems.
+      Context bloat, naming conventions, structural issues
 
       ### Suggestions (Consider) - LOW Priority
-      Quality improvements for better maintainability.
+      Tool placement optimizations, context sink improvements
 
       ## Recommendations
 
@@ -1257,43 +2348,14 @@ steps:
 
       ## Metadata
       - Validated: [timestamp]
-      - Recipe: validate-bundle-repo v2.1.0
-      - Foundation: version from env_check
+      - Recipe: validate-bundle-repo v3.0.0
+      - Foundation: version
       - Quality Thresholds:
         - All bundles must load via BundleRegistry
-        - Must have entry point (root bundle OR behaviors/bundles dirs)
-        - No orphan agents (if agents/ exists, they must be included)
-        - Python packaging must build successfully (if pyproject.toml present)
-
-      Make the report actionable with clear next steps.
-      
-      **IMPORTANT:** If verdict is PASS, emphasize that the bundles are GOOD and any suggestions are truly optional polish, not required changes.
+        - Behaviors must be thin (no root includes, limited context)
+        - Standalones must be complete (orchestrator + context)
+        - Context sink pattern enforced (heavy context → agents)
+        - Python packaging must build successfully (if present)
     output: "final_report"
     timeout: 300
     depends_on: ["quality-classification", "quick-approval", "composition-analysis", "repo-conventions", "set-default-approval-summary", "set-default-composition-analysis", "set-default-repo-conventions"]
-
-  # ============================================================================
-  # PHASE 6 (OPTIONAL): Agent Validation Integration
-  # Placeholder for calling validate-agents recipe
-  # Only runs if validate_agents context variable is "true"
-  # ============================================================================
-
-  # FUTURE ENHANCEMENT: Uncomment and refine when agent validation integration is desired
-  # This would call the validate-agents recipe as a sub-recipe
-  #
-  # - id: "agent-validation-check"
-  #   type: "recipe"
-  #   condition: "{{validate_agents}} == true"
-  #   recipe: "validate-agents.yaml"
-  #   context:
-  #     repo_path: "{{repo_path}}"
-  #   output: "agent_validation_results"
-  #   depends_on: ["synthesize-report"]
-  #
-  # When enabled, this step would:
-  # 1. Run validate-agents.yaml on the same repo
-  # 2. Capture agent quality classification
-  # 3. Include agent findings in a combined report
-  #
-  # The parent session can control this via:
-  #   context='{"repo_path": "/path/to/repo", "validate_agents": "true"}'
