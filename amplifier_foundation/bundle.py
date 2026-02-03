@@ -763,7 +763,7 @@ class BundleModuleResolver:
 
         FIXME: Remove profile_hint parameter after all callers migrate to source_hint (target: v2.0).
         """
-        hint = profile_hint if profile_hint is not None else source_hint
+        _hint = profile_hint if profile_hint is not None else source_hint  # noqa: F841
         if module_id not in self._paths:
             raise ModuleNotFoundError(
                 f"Module '{module_id}' not found in prepared bundle. "
@@ -925,19 +925,8 @@ class PreparedBundle:
         captured_base_path = session_cwd or bundle.base_path or Path.cwd()
 
         async def factory() -> str:
-            # Build combined instruction: main instruction + all context.include files
-            # Re-read files each time to pick up changes
-            instruction_parts: list[str] = []
-            if captured_bundle.instruction:
-                instruction_parts.append(captured_bundle.instruction)
-
-            # Load and append all context files (re-read each call)
-            for context_name, context_path in captured_bundle.context.items():
-                if context_path.exists():
-                    content = context_path.read_text(encoding="utf-8")
-                    instruction_parts.append(f"# Context: {context_name}\n\n{content}")
-
-            combined_instruction = "\n\n---\n\n".join(instruction_parts)
+            # Main instruction stays separate from context files
+            main_instruction = captured_bundle.instruction or ""
 
             # Build bundle registry for resolver (using helper)
             bundles_for_resolver = captured_self._build_bundles_for_resolver(
@@ -954,9 +943,23 @@ class PreparedBundle:
             # Fresh deduplicator each call (files may have changed)
             deduplicator = ContentDeduplicator()
 
-            # Resolve @mentions (re-loads files each call)
+            # Collect context file blocks (XML format for consistency)
+            context_blocks: list[str] = []
+
+            # 1. Bundle context files (from context: section) - formatted as XML
+            for context_name, context_path in captured_bundle.context.items():
+                if context_path.exists():
+                    content = context_path.read_text(encoding="utf-8")
+                    # Use XML format: show context name and resolved path
+                    paths_attr = f"{context_name} → {context_path.resolve()}"
+                    block = f'<context_file paths="{paths_attr}">\n{content}\n</context_file>'
+                    context_blocks.append(block)
+                    # Add to deduplicator to prevent duplicate loading via @mentions
+                    deduplicator.add_file(context_path, content)
+
+            # 2. Resolve @mentions from main instruction (re-loads files each call)
             mention_results = await load_mentions(
-                combined_instruction,
+                main_instruction,
                 resolver=resolver,
                 deduplicator=deduplicator,
             )
@@ -967,14 +970,22 @@ class PreparedBundle:
                 if mr.resolved_path:
                     mention_to_path[mr.mention] = mr.resolved_path
 
-            # Format loaded context as XML blocks
-            context_block = format_context_block(deduplicator, mention_to_path)
+            # 3. Format @mention context as XML blocks (same format as bundle context)
+            mention_context_block = format_context_block(deduplicator, mention_to_path)
 
-            # Prepend context to instruction
-            if context_block:
-                return f"{context_block}\n\n---\n\n{combined_instruction}"
+            # Combine all context blocks (bundle context files + @mention files)
+            # Note: format_context_block only returns files not already in context_blocks
+            # because we added bundle context files to deduplicator first
+            if mention_context_block:
+                context_blocks.append(mention_context_block)
+
+            all_context = "\n\n".join(context_blocks)
+
+            # Final structure: main instruction FIRST, then all context files
+            if all_context:
+                return f"{main_instruction}\n\n---\n\n{all_context}"
             else:
-                return combined_instruction
+                return main_instruction
 
         return factory
 
