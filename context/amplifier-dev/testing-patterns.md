@@ -76,16 +76,22 @@ For testing changes that span multiple repos or need isolation:
 
 ```bash
 # Create shadow environment with local sources
-amplifier shadow create \
-  --local-source amplifier-core:/path/to/amplifier-core \
-  --local-source amplifier-foundation:/path/to/amplifier-foundation
+amplifier-shadow create \
+  --local ~/repos/amplifier-core:microsoft/amplifier-core \
+  --local ~/repos/amplifier-foundation:microsoft/amplifier-foundation
 
-# Run Amplifier in the shadow
-amplifier shadow run interactive
+# Execute commands in the shadow
+amplifier-shadow exec <shadow-id> "uv tool install git+https://github.com/microsoft/amplifier"
+amplifier-shadow exec <shadow-id> "amplifier run 'test my changes'"
 
 # Clean up
-amplifier shadow destroy
+amplifier-shadow destroy <shadow-id>
 ```
+
+> **Note**: If `amplifier-shadow` is not installed, install it with:
+> ```bash
+> uv tool install git+https://github.com/microsoft/amplifier-bundle-shadow
+> ```
 
 ### What Shadow Provides
 
@@ -107,19 +113,21 @@ amplifier shadow destroy
 # 1. Make changes in your local repos (don't need to commit)
 
 # 2. Create shadow with those changes
-amplifier shadow create \
-  --local-source amplifier-core:~/repos/amplifier-core \
-  --local-source amplifier-module-xyz:~/repos/amplifier-module-xyz
+amplifier-shadow create \
+  --local ~/repos/amplifier-core:microsoft/amplifier-core \
+  --local ~/repos/amplifier-module-xyz:microsoft/amplifier-module-xyz \
+  --name my-test
 
 # 3. Test in shadow
-amplifier shadow run interactive
-# or
-amplifier shadow run -- pytest tests/
+amplifier-shadow exec my-test "uv tool install git+https://github.com/microsoft/amplifier"
+amplifier-shadow exec my-test "amplifier run 'verify changes work'"
+# or run tests
+amplifier-shadow exec my-test "cd /workspace && pytest tests/"
 
 # 4. If tests pass, commit and push your changes
 
 # 5. Destroy shadow
-amplifier shadow destroy
+amplifier-shadow destroy my-test
 ```
 
 ## Level 4: Push & CI
