@@ -43,6 +43,19 @@ Before presenting work to the user:
 
 **Only bring design/philosophy decisions to the user, not missing research.**
 
+### 4. **Follow Your Reasoning to Its Conclusion**
+
+**If your analysis establishes a premise, trace it all the way through.**
+
+When you've built the logical case for a position — "X has negligible cost, provides clear value, and the data is lost forever if not captured now" — follow that reasoning to its natural endpoint. Don't stop short and present half-conclusions that require the user to connect the final dots.
+
+Common failure mode: Arguing that a feature is non-destructive, low-overhead, and universally useful... then suggesting it should be configurable. If there's truly no cost, there's no reason for a toggle. The toggle is complexity that contradicts your own analysis.
+
+**Anti-pattern:** "X has no real cost and provides value. Consider making X optional."
+**Correct pattern:** "X has no real cost and provides value. X should always be on — a config option would be dead complexity."
+
+**The test:** After writing a recommendation, ask: "Does my conclusion follow from my premises? Or am I hedging on something I've already resolved?"
+
 ---
 
 ## The Process (6-Phase Workflow)
@@ -1058,6 +1071,30 @@ When PRs span multiple repos:
 **Anti-pattern:** Reading the diff and approving based on "looks reasonable"
 **Correct pattern:** Delegate to understand the system, THEN evaluate the change
 
+### Consolidate Findings Into Cohesive Changes
+
+**Before presenting review feedback, group related observations into single actionable items.**
+
+Multiple findings that touch the same code, concept, or fix should be presented as ONE review item with ONE code suggestion — not as separate line items. Fragmented feedback makes a review harder to act on, makes the PR seem worse than it is, and obscures what the contributor actually needs to do.
+
+**The test:** For each pair of findings, ask: "If the contributor fixes one, does the other go away or change substantially?" If yes, they're the same finding.
+
+**Example failure:**
+> Issue 1 (Blocker): In-place mutation of caller's dict — copy before mutating
+> Issue 3 (Suggestion): Nest timestamp under `metadata` to match kernel convention
+
+These are the same change. The `metadata` nesting inherently requires a dict copy. Presenting them separately implies two problems when there's one: "the way the field is written onto the message needs to change." The combined suggestion is a single code block that solves both.
+
+**Anti-pattern:** 5 review items that are really 2 cohesive changes
+**Correct pattern:** 2 review items, each with a single code suggestion that addresses all related concerns
+
+### Code Suggestions Must Show the Complete End-State
+
+When suggesting code changes in a review, show enough surrounding code that the contributor can see the full picture without tracing variable semantics. If a suggestion involves rebinding a variable, copying a dict, or changing control flow, include the lines before and after so the end-state is self-evident.
+
+**Anti-pattern:** Showing only the changed lines, leaving the reader to figure out how the new code interacts with what follows
+**Correct pattern:** Showing the complete method or block, so the reader can immediately see: "one copy stored, caller's original untouched, timestamp in metadata"
+
 ---
 
 ## Templates
@@ -1174,6 +1211,9 @@ When the fix involves trade-offs or design choices:
 ❌ **"Let me make one more change"** → Commit, test, then make next change  
 ❌ **"This might be related"** → Find the exact relationship  
 ❌ **"I'll ask the user to test it"** → You test it first, present working solution  
+❌ **"Consider doing X"** → If your analysis supports X, recommend X decisively  
+❌ **"Issue 1: mutation. Issue 3: nesting."** → If they're one change, present one item  
+❌ **"X has no cost, so make it optional"** → If there's no cost, there's no reason for a toggle  
 
 ---
 
@@ -1256,6 +1296,22 @@ When reporter describes code that doesn't match current main:
 3. **Provide update instructions** - If fix exists, explain how to get it
 
 **Key pattern:** If reporter's line numbers or code descriptions don't match current main, this is likely a version mismatch, not a missing fix.
+
+### 6. Decisiveness Over Hedging
+
+When you have enough information to make a recommendation, **make it.** Don't present "consider X" when your analysis supports "do X." Hedging wastes the user's time by forcing them to re-derive a conclusion you've already reached.
+
+**Signs you're hedging unnecessarily:**
+- You wrote "consider" or "you might want to" but your analysis clearly supports one answer
+- You're presenting a design decision to the user that your investigation has already resolved
+- You listed pros and cons but didn't say which side wins (and the evidence clearly favors one)
+
+**The litmus test:** "If the user asked me 'so what should I do?', would I immediately know the answer?" If yes, just say it. Don't make them ask.
+
+**Anti-pattern:** "Default True changes behavior. Consider False initially."  (when your own analysis says the change is non-destructive, low-cost, and beneficial)
+**Correct pattern:** "Default True is correct — timestamps are non-destructive, can't be added retroactively, and the opt-out is trivial."
+
+**Exception:** When there's a genuine trade-off with no clear winner (e.g., two architecturally valid approaches with different maintenance costs), present the trade-off and let the user decide. The key distinction: unresolved trade-offs go to the user; resolved analysis does not.
 
 ---
 
