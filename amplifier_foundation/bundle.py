@@ -912,73 +912,28 @@ class PreparedBundle:
         Returns:
             Async callable that returns the system prompt string.
         """
+        from amplifier_foundation.system_prompt import create_system_prompt_factory
 
-        from amplifier_foundation.mentions import BaseMentionResolver
-        from amplifier_foundation.mentions import ContentDeduplicator
-        from amplifier_foundation.mentions import format_context_block
-        from amplifier_foundation.mentions import load_mentions
+        # Build bundle registry from nested bundles
+        bundle_registry = self._build_bundles_for_resolver(bundle)
 
-        # Capture state for the closure
+        # Get base path
+        base_path = session_cwd or bundle.base_path or Path.cwd()
+
+        # Capture for closure - we need to call the async factory creator lazily
+        # because create_system_prompt_factory is async but this method is sync
+        captured_registry = bundle_registry
         captured_bundle = bundle
-        captured_self = self
-        # Use session_cwd if provided, otherwise fall back to bundle's base_path
-        captured_base_path = session_cwd or bundle.base_path or Path.cwd()
+        captured_base_path = base_path
 
         async def factory() -> str:
-            # Main instruction stays separate from context files
-            main_instruction = captured_bundle.instruction or ""
-
-            # Build bundle registry for resolver (using helper)
-            bundles_for_resolver = captured_self._build_bundles_for_resolver(
-                captured_bundle
-            )
-
-            # For local @-mentions (@AGENTS.md, @.amplifier/...), use session_cwd
-            # Bundle-namespaced @-mentions (@foundation:path) use bundles_for_resolver
-            resolver = BaseMentionResolver(
-                bundles=bundles_for_resolver,
+            # Create the inner factory on first call
+            inner_factory = await create_system_prompt_factory(
+                bundle=captured_bundle,
+                bundle_registry=captured_registry,
                 base_path=captured_base_path,
             )
-
-            # Fresh deduplicator each call (files may have changed)
-            deduplicator = ContentDeduplicator()
-
-            # Build mention_to_path map for context block attribution
-            # This includes BOTH bundle context files AND @mentions from instruction
-            mention_to_path: dict[str, Path] = {}
-
-            # 1. Bundle context files (from context: section)
-            # Add to deduplicator and mention_to_path for unified formatting
-            for context_name, context_path in captured_bundle.context.items():
-                if context_path.exists():
-                    content = context_path.read_text(encoding="utf-8")
-                    # Add to deduplicator for content-based deduplication
-                    deduplicator.add_file(context_path, content)
-                    # Add to mention_to_path for attribution (context_name → path)
-                    mention_to_path[context_name] = context_path
-
-            # 2. Resolve @mentions from main instruction (re-loads files each call)
-            mention_results = await load_mentions(
-                main_instruction,
-                resolver=resolver,
-                deduplicator=deduplicator,
-            )
-
-            # Add @mention results to mention_to_path for attribution
-            for mr in mention_results:
-                if mr.resolved_path:
-                    mention_to_path[mr.mention] = mr.resolved_path
-
-            # 3. Format ALL context as XML blocks (bundle context + @mentions)
-            # format_context_block uses deduplicator for unique content and
-            # mention_to_path for attribution (showing name → resolved path)
-            all_context = format_context_block(deduplicator, mention_to_path)
-
-            # Final structure: main instruction FIRST, then all context files
-            if all_context:
-                return f"{main_instruction}\n\n---\n\n{all_context}"
-            else:
-                return main_instruction
+            return await inner_factory()
 
         return factory
 

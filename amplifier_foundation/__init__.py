@@ -87,6 +87,9 @@ from amplifier_foundation.spawn import SessionStorage
 from amplifier_foundation.spawn import SpawnResult
 from amplifier_foundation.spawn import spawn_bundle
 
+# System prompt factory (shared by PreparedBundle and spawn_bundle)
+from amplifier_foundation.system_prompt import create_system_prompt_factory
+
 # Event routing
 from amplifier_foundation.events import EventRouter
 from amplifier_foundation.events import SessionEmitter
@@ -206,6 +209,7 @@ __all__ = [
     "SessionStorage",
     "SpawnResult",
     "spawn_bundle",
+    "create_system_prompt_factory",
     # Event routing
     "EventRouter",
     "SessionEvent",

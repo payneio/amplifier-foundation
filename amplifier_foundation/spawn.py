@@ -17,6 +17,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -169,6 +170,55 @@ def _share_sys_paths(
     return paths_to_share
 
 
+def _build_bundle_registry(
+    prepared: PreparedBundle,
+    parent_session: AmplifierSession,
+) -> dict[str, Bundle]:
+    """
+    Build bundle registry for @mention resolution in spawned sessions.
+
+    Combines:
+    1. Child bundle's own nested bundles (from source_base_paths)
+    2. Parent session's bundle mappings (inherited via mention_resolver)
+
+    Args:
+        prepared: PreparedBundle for the child session.
+        parent_session: Parent session to inherit bundle mappings from.
+
+    Returns:
+        Dict mapping namespace to Bundle for @mention resolution.
+    """
+    from dataclasses import replace as dataclass_replace
+
+    registry: dict[str, Bundle] = {}
+
+    # Get parent's bundle mappings if available
+    parent_resolver = parent_session.coordinator.get_capability("mention_resolver")
+    if parent_resolver and hasattr(parent_resolver, "bundles"):
+        # Copy parent's bundle registry
+        registry.update(parent_resolver.bundles)
+
+    # Add child bundle's nested bundles (override parent if conflict)
+    # This uses the same logic as PreparedBundle._build_bundles_for_resolver
+    bundle = prepared.bundle
+    namespaces = (
+        list(bundle.source_base_paths.keys()) if bundle.source_base_paths else []
+    )
+    if bundle.name and bundle.name not in namespaces:
+        namespaces.append(bundle.name)
+
+    for ns in namespaces:
+        if not ns:
+            continue
+        ns_base_path = bundle.source_base_paths.get(ns, bundle.base_path)
+        if ns_base_path:
+            registry[ns] = dataclass_replace(bundle, base_path=ns_base_path)
+        else:
+            registry[ns] = bundle
+
+    return registry
+
+
 def _extract_recent_turns(
     messages: list[dict],
     n: int,
@@ -274,7 +324,6 @@ async def spawn_bundle(
     # === Event routing (for background completion) ===
     event_router: Any | None = None,
     # === Additional setup ===
-    system_instruction: str | None = None,
     additional_capabilities: dict[str, Any] | None = None,
     pre_execute_hook: Any
     | None = None,  # Callable[[AmplifierSession], Awaitable[None]]
@@ -303,7 +352,6 @@ async def spawn_bundle(
         timeout: Maximum execution time in seconds
         background: If True, return immediately, session runs in background
         event_router: EventRouter for background completion events
-        system_instruction: System instruction to inject before execution
         additional_capabilities: Dict of capabilities to register on child session
         pre_execute_hook: Async callback(session) called after init, before execution
         metadata_extra: Extra metadata to merge into persistence metadata
@@ -498,18 +546,41 @@ async def spawn_bundle(
         )
 
     # =========================================================================
-    # PHASE 8: System Instruction & Context Inheritance
+    # PHASE 8: System Prompt Factory & Context Inheritance
     # =========================================================================
 
-    # --- System instruction injection ---
-    if system_instruction:
-        child_context = child_session.coordinator.get("context")
-        if child_context and hasattr(child_context, "add_message"):
-            await child_context.add_message(
-                {"role": "system", "content": system_instruction}
-            )
-            logger.debug("Injected system instruction")
+    # --- System prompt factory from bundle (enables @mention resolution) ---
+    if prepared.bundle.instruction or prepared.bundle.context:
+        from amplifier_foundation.system_prompt import create_system_prompt_factory
 
+        # Build bundle registry for @mention resolution
+        bundle_registry = _build_bundle_registry(prepared, parent_session)
+
+        # Get working directory
+        working_dir = parent_session.coordinator.get_capability("session.working_dir")
+        base_path = Path(working_dir) if working_dir else Path.cwd()
+
+        # Create factory
+        factory = await create_system_prompt_factory(
+            bundle=prepared.bundle,
+            bundle_registry=bundle_registry,
+            base_path=base_path,
+        )
+
+        # Set on context manager
+        child_context = child_session.coordinator.get("context")
+        if child_context and hasattr(child_context, "set_system_prompt_factory"):
+            await child_context.set_system_prompt_factory(factory)
+            logger.debug("Set system prompt factory from bundle")
+        elif child_context and hasattr(child_context, "add_message"):
+            # Fallback for context managers without factory support
+            resolved_prompt = await factory()
+            await child_context.add_message(
+                {"role": "system", "content": resolved_prompt}
+            )
+            logger.debug("Injected resolved system prompt (fallback)")
+
+    # --- Context inheritance from parent ---
     if context_depth != "none":
         parent_messages = await _build_context_messages(
             parent_session, context_depth, context_scope, context_turns
