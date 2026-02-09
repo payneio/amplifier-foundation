@@ -33,7 +33,7 @@ class SessionEvent:
     """An event emitted by a session.
 
     Attributes:
-        name: Event name (e.g., 'session:completed', 'work:done').
+        name: Event name (e.g., 'session:end', 'work:done').
               Convention: use namespace:action format.
         data: Event payload containing relevant information.
         source_session_id: Session that emitted the event (None for system events).
@@ -41,7 +41,7 @@ class SessionEvent:
     """
 
     name: str
-    """Event name (e.g., 'session:completed', 'work:done')."""
+    """Event name (e.g., 'session:end', 'work:done')."""
 
     data: dict[str, Any]
     """Event payload."""
@@ -97,7 +97,7 @@ class EventRouter:
         Emit an event to all subscribers.
 
         Args:
-            event_name: Name of the event (e.g., 'session:completed')
+            event_name: Name of the event (e.g., 'session:end')
             data: Event payload
             source_session_id: Session emitting the event (None for system events)
 
@@ -207,14 +207,14 @@ class EventRouter:
             The first matching SessionEvent, or None if timeout occurred.
 
         Example:
-            # Wait for a session to complete
+            # Wait for a session to end
             event = await router.wait_for_event(
-                ["session:completed"],
+                ["session:end"],
                 source_sessions=["child-session-id"],
                 timeout=60.0
             )
             if event:
-                print(f"Session completed with: {event.data}")
+                print(f"Session ended with status: {event.data.get('status')}")
         """
         try:
             async with asyncio.timeout(timeout):

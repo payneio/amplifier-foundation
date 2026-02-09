@@ -468,13 +468,13 @@ class TestEventRouterIntegration:
 
     @pytest.mark.asyncio
     async def test_background_session_completion_event(self):
-        """Simulate background session emitting completion event."""
+        """Simulate background session emitting session:end event."""
         router = EventRouter()
         completion_received = asyncio.Event()
         received_data: dict = {}
 
         async def completion_handler():
-            async for event in router.subscribe(["session:completed"]):
+            async for event in router.subscribe(["session:end"]):
                 received_data.update(event.data)
                 completion_received.set()
                 break
@@ -485,12 +485,12 @@ class TestEventRouterIntegration:
 
         # Simulate what spawn_bundle does for background sessions
         await router.emit(
-            "session:completed",
+            "session:end",
             {
                 "session_id": "worker-123",
                 "bundle_name": "test-bundle",
+                "status": "completed",
                 "output": "Task completed successfully",
-                "success": True,
             },
         )
 

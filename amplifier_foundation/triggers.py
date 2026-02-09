@@ -183,7 +183,7 @@ class SessionEventTrigger:
     allowing background sessions to be spawned in response to session events.
 
     Configuration:
-        event_names: List of event names to subscribe to (e.g., ["session:completed"])
+        event_names: List of event names to subscribe to (e.g., ["session:end"])
         source_sessions: Optional list of session IDs to filter by
 
     Example:

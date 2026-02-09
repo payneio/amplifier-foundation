@@ -642,28 +642,29 @@ async def _execute_background_session(
             }
             session_storage.save(session_id, transcript, metadata)
 
-        # Emit completion event
+        # Emit session end event with status in payload
         if event_router:
             await event_router.emit(
-                "session:completed",
+                "session:end",
                 {
                     "session_id": session_id,
                     "bundle_name": bundle_name,
+                    "status": "completed",
                     "output": response,
-                    "success": True,
                 },
             )
 
     except Exception as e:
         logger.error(f"Background session {session_id} failed: {e}")
 
-        # Emit error event
+        # Emit session end event with error status in payload
         if event_router:
             await event_router.emit(
-                "session:error",
+                "session:end",
                 {
                     "session_id": session_id,
                     "bundle_name": bundle_name,
+                    "status": "error",
                     "error": str(e),
                     "error_type": type(e).__name__,
                 },

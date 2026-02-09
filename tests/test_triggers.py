@@ -393,14 +393,14 @@ class TestTriggerIntegration:
 
     @pytest.mark.asyncio
     async def test_session_event_chain(self):
-        """Test Session A completes -> triggers Session B pattern."""
+        """Test Session A ends -> triggers Session B pattern."""
         router = EventRouter()
 
-        # Session B's trigger: watch for session:completed from Session A
+        # Session B's trigger: watch for session:end from Session A
         trigger_b = SessionEventTrigger(router)
         trigger_b.configure(
             {
-                "event_names": ["session:completed"],
+                "event_names": ["session:end"],
                 "source_sessions": ["session-A"],
             }
         )
@@ -415,10 +415,14 @@ class TestTriggerIntegration:
         watcher_task = asyncio.create_task(session_b_watcher())
         await asyncio.sleep(0.05)
 
-        # Session A completes and emits event
+        # Session A ends and emits event
         await router.emit(
-            "session:completed",
-            {"output": "task done", "session_id": "session-A-child"},
+            "session:end",
+            {
+                "status": "completed",
+                "output": "task done",
+                "session_id": "session-A-child",
+            },
             source_session_id="session-A",
         )
 
