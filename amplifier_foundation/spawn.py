@@ -527,15 +527,13 @@ async def spawn_bundle(
     )
 
     # --- Event emitter capability ---
-    if event_router:
-        from amplifier_foundation.events import EventRouter
-
-        if isinstance(event_router, EventRouter):
-            session_emitter = event_router.create_session_emitter(session_id)
-            child_session.coordinator.register_capability(
-                "event.emit", session_emitter.emit
-            )
-            logger.debug(f"Registered event.emit capability for session {session_id}")
+    # Use duck typing to avoid dependency on orchestration bundle
+    if event_router and hasattr(event_router, "create_session_emitter"):
+        session_emitter = event_router.create_session_emitter(session_id)
+        child_session.coordinator.register_capability(
+            "event.emit", session_emitter.emit
+        )
+        logger.debug(f"Registered event.emit capability for session {session_id}")
 
     # --- Additional capabilities from caller ---
     if additional_capabilities:
