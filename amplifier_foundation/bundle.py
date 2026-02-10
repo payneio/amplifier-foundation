@@ -1139,21 +1139,22 @@ class PreparedBundle:
         parent_messages: list[dict[str, Any]] | None = None,
         session_cwd: Path | None = None,
         provider_preferences: list[ProviderPreference] | None = None,
+        self_delegation_depth: int = 0,
     ) -> dict[str, Any]:
         """Spawn a sub-session with a child bundle.
 
-        This is the core spawning MECHANISM. It handles:
-        1. Optionally composes child with parent bundle
-        2. Creates a new session with the child's mount plan
-        3. Applies provider preferences if specified
-        4. Injects parent messages if provided (for context inheritance)
-        5. Injects system instruction if present
-        6. Executes the instruction
-        7. Returns the result
+        This is the library-level spawn method. It creates a child AmplifierSession,
+        mounts modules from the bundle, executes the instruction, and returns the result.
 
-        Agent name resolution is APP-LAYER POLICY. Apps should resolve
-        agent names to Bundle objects before calling this method.
-        See the end_to_end example for a reference implementation.
+        The app layer (CLI, API server) typically wraps this in a "spawn capability"
+        function that handles additional concerns:
+        - Resolving agent_name to a Bundle (this method takes a pre-resolved Bundle)
+        - tool_inheritance / hook_inheritance (filtering which parent tools/hooks
+          the child inherits — this is app-layer policy)
+        - agent_configs (used by the app to look up agent configuration)
+
+        See amplifier-app-cli/session_spawner.py for the reference production
+        implementation of a full spawn capability.
 
         Args:
             child_bundle: Bundle to spawn (already resolved by app layer).
@@ -1169,6 +1170,9 @@ class PreparedBundle:
             provider_preferences: Optional ordered list of provider/model preferences.
                 The system tries each in order until finding an available provider.
                 Model names support glob patterns (e.g., "claude-haiku-*").
+            self_delegation_depth: Current delegation depth for depth limiting.
+                When > 0, registered as a coordinator capability so
+                depth-limiting tools can read it via get_capability().
 
         Returns:
             Dict with "output" (response) and "session_id".
@@ -1274,6 +1278,13 @@ class PreparedBundle:
 
         await child_session.initialize()
 
+        # Register self_delegation_depth as a coordinator capability
+        # tool-delegate reads this via coordinator.get_capability("self_delegation_depth")
+        if self_delegation_depth > 0:
+            child_session.coordinator.register_capability(
+                "self_delegation_depth", self_delegation_depth
+            )
+
         # Inject parent messages if provided (for context inheritance)
         # This allows child sessions to have awareness of parent's conversation history.
         # Only inject for new sessions, not when resuming (session_id provided).
@@ -1299,10 +1310,38 @@ class PreparedBundle:
                     {"role": "system", "content": resolved_prompt}
                 )
 
+        # Capture orchestrator:complete event data from child session
+        from amplifier_core.models import HookResult
+
+        completion_data: dict[str, Any] = {}
+
+        async def _capture_orchestrator_complete(
+            event: str, data: dict[str, Any]
+        ) -> HookResult:
+            completion_data.update(data)
+            return HookResult()
+
+        # Register temporary hook to capture structured metadata
+        unregister = child_session.coordinator.hooks.register(
+            "orchestrator:complete",
+            _capture_orchestrator_complete,
+            priority=999,  # Run last — don't interfere with other hooks
+            name="_spawn_completion_capture",
+        )
+
         # Execute instruction and cleanup
         try:
             response = await child_session.execute(instruction)
         finally:
+            # Unregister the temporary hook before cleanup
+            unregister()
             await child_session.cleanup()
 
-        return {"output": response, "session_id": child_session.session_id}
+        return {
+            "output": response,
+            "session_id": child_session.session_id,
+            # Enriched fields from orchestrator:complete event
+            "status": completion_data.get("status", "success"),
+            "turn_count": completion_data.get("turn_count", 1),
+            "metadata": completion_data.get("metadata", {}),
+        }
