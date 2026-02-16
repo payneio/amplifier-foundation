@@ -196,6 +196,7 @@ Push for extreme simplicity in these areas:
 3. **Edge case handling**: Handle the common cases well first
 4. **Framework usage**: Use only what you need from frameworks
 5. **State management**: Keep state simple and explicit
+6. **Conventions via instructions, not code**: When a pattern is too trivial for a shared utility but important to standardize across modules, encode it as context/instruction guidance rather than creating shared helper code. The dependency tax of importing a shared library is not worth it for a one-liner that Python's stdlib already provides. Document the convention; don't centralize the code. This approach is preferred when: (a) the pattern is a well-known stdlib call (e.g., `.expanduser()`, `encoding="utf-8"`), (b) modules are isolated and shouldn't take new dependencies, and (c) the real problem is awareness, not complexity.
 
 ## Practical Examples
 
@@ -404,6 +405,32 @@ Before committing code that touches file I/O or paths:
 - PowerShell and Command Prompt
 - Consider WSL for Unix-compatibility testing
 
+### User-Supplied Paths — Always Expand Home Directory
+
+**Critical Rule**: Any path that may contain `~` must call `.expanduser()` before use.
+
+**Why**: Python's `pathlib.Path` does not expand `~` automatically. `Path("~/file.txt").resolve()` produces a path like `/current/dir/~/file.txt` instead of `/home/user/file.txt`. This causes silent failures — the path looks valid but points nowhere. Agents frequently pass paths starting with `~/` (e.g. `~/.amplifier/workspace/`), so every tool that accepts a path parameter is exposed to this bug.
+
+**Always do this:**
+```python
+# ✅ Expand ~ before any other path operations
+p = Path(user_path).expanduser()
+p = Path(user_path).expanduser().resolve()
+
+# ✅ In tool modules that accept a path parameter
+path_obj = Path(input.get("path", ".")).expanduser()
+```
+
+**Never do this:**
+```python
+# ❌ resolve() does NOT expand ~ — this silently produces wrong paths
+p = Path(user_path).resolve()
+
+# ❌ Checking existence without expanduser — always returns False for ~/...
+if Path(user_path).exists():
+    ...
+```
+
 ## Remember
 
 - It's easier to add complexity later than to remove it
@@ -412,5 +439,6 @@ Before committing code that touches file I/O or paths:
 - The best code is often the simplest
 - **Always specify UTF-8 encoding for cross-platform compatibility**
 - **Always sanitize user input used in filenames**
+- **Always call `.expanduser()` on paths that may contain `~`**
 
 This philosophy document serves as the foundational guide for all implementation decisions in the project.
